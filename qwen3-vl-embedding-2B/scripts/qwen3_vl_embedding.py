@@ -179,13 +179,28 @@ class Qwen3VLEmbedder():
 
         self.default_instruction = default_instruction
 
+        # 关键修复：从 kwargs 中移除 device 参数（如果存在）
+        # from_pretrained() 不接受 device 作为关键字参数
+        model_kwargs = {k: v for k, v in kwargs.items() if k != 'device'}
+
+        # 先加载模型（不指定设备）
+        logger.info(f"正在从 {model_name_or_path} 加载模型...")
         self.model = Qwen3VLForEmbedding.from_pretrained(
-            model_name_or_path, trust_remote_code=True, **kwargs
-        ).to(self.device)
+            model_name_or_path,
+            trust_remote_code=True,
+            **model_kwargs  # 使用过滤后的 kwargs
+        )
+
+        # 再将模型移动到指定设备
+        logger.info(f"正在将模型移动到设备: {self.device}")
+        self.model = self.model.to(self.device)
+
+        # 加载处理器
         self.processor = Qwen3VLProcessor.from_pretrained(
             model_name_or_path, padding_side='right'
         )
         self.model.eval()
+        logger.info("模型加载完成")
 
     @torch.no_grad()
     def forward(self, inputs: Dict[str, Any]) -> Dict[str, torch.Tensor]:
