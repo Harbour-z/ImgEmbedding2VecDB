@@ -46,6 +46,7 @@ class EmbeddingService:
         min_pixels: int = 4096,
         max_pixels: int = 1843200,
         default_instruction: str = "Represent the user's input.",
+        device: Optional[str] = None,
         **kwargs
     ) -> None:
         """
@@ -57,13 +58,15 @@ class EmbeddingService:
             min_pixels: 图像最小像素数
             max_pixels: 图像最大像素数
             default_instruction: 默认指令提示
+            device: 显式指定设备（如 'cuda:1', 'mps', 'cpu'）
             **kwargs: 传递给模型的其他参数
         """
         if self._initialized and self._embedder is not None:
             logger.info("Embedding模型已初始化，跳过重复初始化")
             return
 
-        logger.info(f"正在初始化Embedding模型: {model_path}")
+        logger.info(
+            f"正在初始化Embedding模型: {model_path} (Device: {device or 'Auto'})")
 
         # 在这里动态导入模块（sys.path已在模块顶部设置好）
         from qwen3_vl_embedding import Qwen3VLEmbedder
@@ -74,6 +77,7 @@ class EmbeddingService:
             min_pixels=min_pixels,
             max_pixels=max_pixels,
             default_instruction=default_instruction,
+            device=device,
             **kwargs
         )
         self._initialized = True

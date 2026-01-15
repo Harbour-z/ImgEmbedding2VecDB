@@ -152,17 +152,21 @@ class Qwen3VLEmbedder():
         num_frames: int = MAX_FRAMES,
         max_frames: int = MAX_FRAMES,
         default_instruction: str = "Represent the user's input.",
+        device: Optional[str] = None,  # 新增：显式设备参数
         **kwargs
     ):
-        # 设备选择优先级: CUDA > MPS > CPU
-        if torch.cuda.is_available():
-            device = torch.device("cuda")
+        # 设备选择优先级: 指定设备 > CUDA > MPS > CPU
+        if device:
+            self.device = torch.device(device)
+            logger.info(f"使用指定设备进行推理: {device}")
+        elif torch.cuda.is_available():
+            self.device = torch.device("cuda")
             logger.info("使用CUDA设备进行推理")
         elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-            device = torch.device("mps")
+            self.device = torch.device("mps")
             logger.info("使用MPS设备（Apple Silicon）进行推理")
         else:
-            device = torch.device("cpu")
+            self.device = torch.device("cpu")
             logger.info("使用CPU设备进行推理")
 
         self.max_length = max_length
@@ -177,7 +181,7 @@ class Qwen3VLEmbedder():
 
         self.model = Qwen3VLForEmbedding.from_pretrained(
             model_name_or_path, trust_remote_code=True, **kwargs
-        ).to(device)
+        ).to(self.device)
         self.processor = Qwen3VLProcessor.from_pretrained(
             model_name_or_path, padding_side='right'
         )

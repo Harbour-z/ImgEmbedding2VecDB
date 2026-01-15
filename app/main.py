@@ -4,6 +4,7 @@
 """
 
 import logging
+import torch
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -74,14 +75,20 @@ async def lifespan(app: FastAPI):
     logger.info("初始化Embedding服务...")
     embedding_service = get_embedding_service()
     try:
+        # 构建设备字符串，只有在CUDA可用时才应用CUDA设备号
+        device = None
+        if torch.cuda.is_available():
+            device = f"cuda:{settings.CUDA_DEVICE}"
+
         embedding_service.initialize(
             model_path=settings.MODEL_PATH,
             max_length=settings.MAX_LENGTH,
             min_pixels=settings.MIN_PIXELS,
             max_pixels=settings.MAX_PIXELS,
-            default_instruction=settings.DEFAULT_INSTRUCTION
+            default_instruction=settings.DEFAULT_INSTRUCTION,
+            device=device
         )
-        logger.info("Embedding模型加载成功")
+        logger.info(f"Embedding模型加载成功 (Device: {device or 'Auto'})")
     except Exception as e:
         logger.warning(f"Embedding模型加载失败: {e}")
         logger.warning("系统将在没有Embedding服务的情况下运行")

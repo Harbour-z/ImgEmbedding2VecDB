@@ -26,6 +26,9 @@ class Settings(BaseSettings):
         "MODEL_PATH",
         str(Path(__file__).parent.parent / "qwen3-vl-embedding-2B")
     )
+    # 新增：CUDA设备号（默认为 "0"）
+    CUDA_DEVICE: str = os.environ.get("CUDA_DEVICE", "0")
+
     MAX_LENGTH: int = 8192
     MIN_PIXELS: int = 4 * 32 * 32  # 4 * IMAGE_FACTOR^2
     MAX_PIXELS: int = 1800 * 32 * 32  # 1800 * IMAGE_FACTOR^2
