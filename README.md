@@ -21,17 +21,20 @@ ImgEmbedding2VecDB/
 │   ├── config.py            # 配置管理
 │   ├── models/              # Pydantic数据模型
 │   ├── services/            # 业务服务层
+│   │   ├── embedding_service.py    # Embedding生成
+│   │   ├── vector_db_service.py    # 向量数据库操作
+│   │   ├── storage_service.py      # 图片存储管理
+│   │   ├── search_service.py       # 搜索服务
+│   │   └── agent_service.py        # Agent智能体逻辑
 │   └── routers/             # API路由
-├── agent/                   # Agent集成模块（可选）
-│   ├── agent_main.py        # OpenJiuwen Agent主程序
-│   ├── config.py            # Agent配置
-│   └── tools/               # Agent工具集
-│       ├── album_tools.py   # 相册管理工具
-│       └── search_tools.py  # 搜索工具
+│       ├── embedding.py     # Embedding接口
+│       ├── vector_db.py     # 向量数据库接口
+│       ├── storage.py       # 存储接口
+│       ├── search.py        # 搜索接口
+│       └── agent.py         # Agent聊天接口
 ├── qwen3-vl-embedding-2B/   # 多模态Embedding模型
 ├── storage/                 # 图片存储目录
 ├── qdrant_data/             # Qdrant本地数据
-├── start_agent.sh           # Agent一键启动脚本
 └── requirements.txt
 ```
 
@@ -193,14 +196,59 @@ description: str = "..."     # 图片描述
 - 异步模式：~200ms 响应，后台处理
 - 同步模式：~2-5s 响应，立即可搜索
 
-### Agent集成 (`/api/v1/agent`)
+### Agent智能体 (`/api/v1/agent`)
 
-| 接口       | 方法 | 说明             |
-| ---------- | ---- | ---------------- |
-| `/actions` | GET  | 获取可用动作列表 |
-| `/execute` | POST | 执行Agent动作    |
-| `/status`  | GET  | 获取系统状态     |
-| `/schema`  | GET  | 获取API Schema   |
+| 接口              | 方法 | 说明                     |
+| ----------------- | ---- | ------------------------ |
+| `/chat`           | POST | 智能聊天接口（主要入口） |
+| `/session/create` | POST | 创建新会话               |
+| `/session/{id}`   | GET  | 获取会话信息             |
+| `/actions`        | GET  | 获取可用动作列表         |
+| `/execute`        | POST | 执行Agent动作（高级）    |
+| `/status`         | GET  | 获取系统状态             |
+
+**聊天接口示例：**
+```bash
+# 第一次对话
+curl -X POST "http://localhost:8000/api/v1/agent/chat" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "我昨天拍的小狗照片",
+    "top_k": 5
+  }'
+
+# 响应：
+{
+  "session_id": "a1b2c3d4-...",
+  "answer": "为您找到了 3 张相关照片。",
+  "intent": "search",
+  "optimized_query": "昨天拍的小狗照片",
+  "results": {
+    "total": 3,
+    "images": [...]
+  },
+  "suggestions": [
+    "查找相似的照片",
+    "这些照片是什么时候拍的"
+  ]
+}
+
+# 多轮对话（带上session_id）
+curl -X POST "http://localhost:8000/api/v1/agent/chat" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "第一张是在哪拍的",
+    "session_id": "a1b2c3d4-..."
+  }'
+```
+
+**功能特点：**
+- ✅ 自然语言理解：识别用户意图（搜索/上传/删除）
+- ✅ 查询优化：将口语化描述转为精确语义（预留LLM集成）
+- ✅ 自动工具调用：根据意图调用后端服务
+- ✅ 对话式响应：生成自然语言回复
+- ✅ 后续建议：智能推荐下一步操作
+- ✅ 多轮对话：支持上下文记忆
 
 ## 配置说明
 
@@ -242,7 +290,19 @@ import requests
 
 BASE_URL = "http://localhost:8000/api/v1"
 
-# 1. 上传图片
+# 1. 使用Agent聊天接口（推荐）
+response = requests.post(
+    f"{BASE_URL}/agent/chat",
+    json={
+        "query": "我想找一些海边的照片",
+        "top_k": 5
+    }
+).json()
+print(response["answer"])  # "为您找到了 3 张相关照片。"
+print(response["results"])  # 搜索结果
+
+# 2. 直接调用底层API（适合管理/调试）
+# 上传图片
 with open("photo.jpg", "rb") as f:
     response = requests.post(
         f"{BASE_URL}/storage/upload",
@@ -251,19 +311,19 @@ with open("photo.jpg", "rb") as f:
     )
     image_id = response.json()["data"]["id"]
 
-# 2. 文本搜索
+# 文本搜索
 results = requests.get(
     f"{BASE_URL}/search/text",
     params={"query": "蓝天白云", "top_k": 5}
 ).json()["data"]
 
-# 3. 以图搜图
+# 以图搜图
 similar = requests.get(
     f"{BASE_URL}/search/image/{image_id}",
     params={"top_k": 10}
 ).json()["data"]
 
-# 4. 从URL下载并索引图片（新增）
+# 从URL下载并索引图片
 result = requests.post(
     f"{BASE_URL}/embedding/image",
     params={
@@ -279,6 +339,11 @@ stored_id = result.get("stored_image_id")
 ### cURL示例
 
 ```bash
+# Agent聊天接口
+curl -X POST "http://localhost:8000/api/v1/agent/chat" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "我想找一些海边的照片", "top_k": 5}'
+
 # 上传图片
 curl -X POST "http://localhost:8000/api/v1/storage/upload" \
   -F "file=@photo.jpg" \
@@ -292,59 +357,44 @@ curl "http://localhost:8000/api/v1/search/text?query=蓝天白云&top_k=5"
 curl "http://localhost:8000/status"
 ```
 
-## Agent集成指南
+## 前端集成指南
 
-系统提供两种 Agent 集成方式：
+**推荐架构：前端只调用 `/agent/chat` 接口**
 
-### 方式1：HTTP API调用（推荐）
+```javascript
+// React 示例
+const [messages, setMessages] = useState([]);
+const [sessionId, setSessionId] = useState(null);
 
-```python
-import requests
-
-BASE_URL = "http://localhost:8000/api/v1"
-
-# 搜索图片
-results = requests.get(
-    f"{BASE_URL}/search/text",
-    params={"query": "进一张有猫的照片", "top_k": 5}
-).json()["data"]
-
-# 上传图片
-with open("cat.jpg", "rb") as f:
-    result = requests.post(
-        f"{BASE_URL}/storage/upload",
-        files={"file": f},
-        data={"auto_index": True, "tags": "动物,猫"}
-    ).json()["data"]
+async function sendMessage(query) {
+  const res = await fetch('/api/v1/agent/chat', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ query, session_id: sessionId, top_k: 10 })
+  });
+  
+  const data = await res.json();
+  setSessionId(data.session_id);
+  
+  setMessages([...messages, {
+    user: query,
+    agent: data.answer,
+    images: data.results?.images || [],
+    suggestions: data.suggestions
+  }]);
+}
 ```
 
-### 方式2：OpenJiuwen 框架集成
+**为什么使用 Agent 接口？**
+- ✅ 前端逐辑简单：只需一个聊天框
+- ✅ 自然语言交互：用户体验好
+- ✅ 后端灵活：内部服务可随意调整
+- ✅ 易于扩展：加新功能不影响前端
 
-项目已内置 Agent 工具集，支持 OpenJiuwen 等框架：
-
-```bash
-# 一键启动（后端 + Agent）
-./start_agent.sh
-
-# 或分步启动
-# 终端1：后端服务
-uvicorn app.main:app --host 0.0.0.0 --port 8000
-
-# 终端2：Agent
-cd agent && python agent_main.py
-```
-
-**可用工具：**
-- `album_tools.py`: 上传、删除、查看图片
-- `search_tools.py`: 文本搜索、以图搜图、混合搜索
-
-**配置示例：**
-```python
-# agent/config.py
-ALBUM_API_BASE_URL = "http://localhost:8000/api/v1"
-LLM_MODEL = "qwen-plus"
-LLM_API_KEY = "your-api-key"  # 华为云API密钥
-```
+**直接调用底层API的场景：**
+- 管理后台：需要精细控制（`/storage`, `/vectors`）
+- 文件上传：直接上传文件流（`/storage/upload`）
+- API调试：开发阶段测试
 
 ## 系统要求
 

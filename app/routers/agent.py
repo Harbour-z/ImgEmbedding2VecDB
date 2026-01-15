@@ -4,7 +4,8 @@ AI Agent框架集成预留接口
 """
 
 from typing import Optional, Dict, Any, List
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Body
+from pydantic import BaseModel, Field
 
 from ..models import (
     AgentAction,
@@ -22,6 +23,8 @@ from ..services import (
     VectorDBService,
     get_embedding_service,
     EmbeddingService,
+    get_agent_service,
+    AgentService,
 )
 
 router = APIRouter(prefix="/agent", tags=["Agent Integration"])
@@ -389,3 +392,188 @@ def _generate_suggestions(action: AgentAction, result: Dict[str, Any]) -> List[s
             suggestions.append("更新成功，可以搜索验证更新效果")
 
     return suggestions
+
+
+# ==================== 聊天接口 ====================
+
+class ChatMessage(BaseModel):
+    """聊天消息模型"""
+    query: str = Field(..., description="用户输入的自然语言查询")
+    session_id: Optional[str] = Field(None, description="会话ID，用于多轮对话")
+    top_k: int = Field(10, description="返回结果数量", ge=1, le=50)
+    score_threshold: Optional[float] = Field(
+        None, description="相似度阈值", ge=0.0, le=1.0)
+
+
+class ChatResponse(BaseModel):
+    """聊天响应模型"""
+    session_id: str = Field(..., description="会话ID")
+    answer: str = Field(..., description="自然语言回复")
+    intent: str = Field(..., description="识别的用户意图")
+    optimized_query: str = Field(..., description="优化后的查询")
+    results: Optional[Dict[str, Any]] = Field(None, description="搜索结果")
+    suggestions: List[str] = Field(default_factory=list, description="后续建议")
+    timestamp: str = Field(..., description="响应时间戳")
+
+
+@router.post(
+    "/chat",
+    response_model=ChatResponse,
+    summary="Agent聊天接口",
+    description="""
+    智能对话接口，支持：
+    
+    1. **自然语言理解**：理解用户意图
+    2. **查询优化**：将口语化描述转为精确语义（预留LLM集成）
+    3. **工具调用**：自动调用搜索、删除等后端服务
+    4. **自然回复**：生成对话式响应
+    5. **多轮对话**：通过session_id保持上下文
+    
+    **使用示例**：
+    ```json
+    {
+      "query": "我昨天拍的小狗照片",
+      "top_k": 5
+    }
+    ```
+    
+    **预留扩展**：
+    - 接入小参数LLM做查询优化
+    - Function Calling工具链
+    - RAG增强生成
+    """
+)
+async def agent_chat(
+    message: ChatMessage,
+    search_svc: SearchService = Depends(get_search_service),
+    agent_svc: AgentService = Depends(get_agent_service)
+):
+    """
+    Agent聊天主接口
+
+    处理流程：
+    1. 创建/获取会话
+    2. 意图识别
+    3. 查询优化（预留LLM）
+    4. 执行工具调用
+    5. 生成自然语言响应
+    6. 返回结果+建议
+    """
+    from datetime import datetime
+
+    # 初始化Agent服务
+    if not agent_svc.is_initialized:
+        agent_svc.initialize()
+
+    # 创建或获取会话
+    session_id = message.session_id
+    if not session_id:
+        session_id = agent_svc.create_session()
+
+    session = agent_svc.get_session(session_id)
+    if not session:
+        session_id = agent_svc.create_session()
+
+    # 1. 意图识别
+    intent_result = agent_svc.detect_intent(message.query)
+    intent = intent_result["intent"]
+
+    # 2. 查询优化（当前简化版，预留LLM接入点）
+    optimized_query = agent_svc.optimize_query(message.query, session_id)
+
+    # 3. 执行工具调用（当前主要支持搜索）
+    results = None
+
+    if intent == "search":
+        if not search_svc.is_initialized:
+            raise HTTPException(status_code=503, detail="搜索服务未初始化")
+
+        # 调用搜索服务
+        search_results = search_svc.search_by_text(
+            query_text=optimized_query,
+            top_k=message.top_k,
+            score_threshold=message.score_threshold
+        )
+
+        results = {
+            "total": len(search_results),
+            "images": search_results
+        }
+
+    elif intent == "delete":
+        results = {"message": "删除功能需要指定图片ID，请使用 /agent/execute 接口"}
+
+    elif intent == "upload":
+        results = {"message": "上传功能请使用 /storage/upload 接口"}
+
+    elif intent == "analyze":
+        results = {"message": "图片分析功能即将上线"}
+
+    else:
+        results = {"message": "抱歉，我还不太理解您的意思"}
+
+    # 4. 生成自然语言回复
+    answer = agent_svc.generate_response(intent, results, message.query)
+
+    # 5. 生成后续建议
+    suggestions = agent_svc.generate_suggestions(intent, results)
+
+    # 6. 返回响应
+    return ChatResponse(
+        session_id=session_id,
+        answer=answer,
+        intent=intent,
+        optimized_query=optimized_query,
+        results=results,
+        suggestions=suggestions,
+        timestamp=datetime.now().isoformat()
+    )
+
+
+@router.post(
+    "/session/create",
+    summary="创建新会话",
+    description="创建一个新的对话会话，用于多轮对话场景"
+)
+async def create_session(
+    user_id: Optional[str] = Body(None, description="用户ID（可选）"),
+    agent_svc: AgentService = Depends(get_agent_service)
+):
+    """创建新会话"""
+    if not agent_svc.is_initialized:
+        agent_svc.initialize()
+
+    session_id = agent_svc.create_session(user_id)
+
+    return {
+        "status": "success",
+        "session_id": session_id,
+        "message": "会话创建成功"
+    }
+
+
+@router.get(
+    "/session/{session_id}",
+    summary="获取会话信息",
+    description="查看指定会话的历史记录和上下文"
+)
+async def get_session_info(
+    session_id: str,
+    agent_svc: AgentService = Depends(get_agent_service)
+):
+    """获取会话信息"""
+    session = agent_svc.get_session(session_id)
+
+    if not session:
+        raise HTTPException(status_code=404, detail=f"会话不存在: {session_id}")
+
+    return {
+        "status": "success",
+        "session": {
+            "session_id": session_id,
+            "user_id": session.get("user_id"),
+            "created_at": session.get("created_at").isoformat(),
+            "history_count": len(session.get("history", [])),
+            "context": session.get("context", {})
+        }
+    }
