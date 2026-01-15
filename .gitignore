@@ -185,7 +185,6 @@ tensorboard/
 tb_logs/
 checkpoints/
 weights/
-models/
 outputs/
 results/
 experiments/
