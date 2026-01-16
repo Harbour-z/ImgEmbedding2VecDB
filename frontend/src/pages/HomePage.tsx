@@ -19,9 +19,11 @@ import {
   BulbOutlined,
   RocketOutlined,
   CameraOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import { TypewriterEffect } from '../components/common/TypewriterEffect';
 import { useChatStore } from '../store/chatStore';
+import { useThemeStore } from '../store/themeStore';
 
 const { Title, Paragraph, Text } = Typography;
 const { TextArea } = Input;
@@ -29,10 +31,14 @@ const { TextArea } = Input;
 export const HomePage: React.FC = () => {
   const navigate = useNavigate();
   const { sendMessage } = useChatStore();
+  const { isDarkMode } = useThemeStore();
   const [query, setQuery] = useState('');
   const [topK, setTopK] = useState(10);
   const { token } = theme.useToken();
+  const [currentSuggestions, setCurrentSuggestions] = useState<{ icon: string; text: string }[]>([]);
+  const [isAnimating, setIsAnimating] = useState(false);
   const [topic, setTopic] = useState('');
+  const [titleParts, setTitleParts] = useState<{ text: string; style?: React.CSSProperties }[]>([]);
 
   // 预设话题列表
   const topics = [
@@ -46,10 +52,71 @@ export const HomePage: React.FC = () => {
     '寻找秋天落叶铺满街道的场景'
   ];
 
-  // 每次页面加载时随机选择一个话题
+  // 首页标题变体列表
+  const titleVariations = [
+    [
+      { text: '用语言描述，' },
+      { text: '智能搜索', style: { color: token.colorPrimary } }
+    ],
+    [
+      { text: '以自然语言，' },
+      { text: '寻心中所想', style: { color: token.colorPrimary } }
+    ],
+    [
+      { text: '懂你所想，' },
+      { text: '搜你所见', style: { color: token.colorPrimary } }
+    ],
+    [
+      { text: '语义理解，' },
+      { text: '精准搜图', style: { color: token.colorPrimary } }
+    ],
+    [
+      { text: '告别关键词，' },
+      { text: '描述即所得', style: { color: token.colorPrimary } }
+    ]
+  ];
+
+  const allSuggestions = [
+    // 自然风景
+    { icon: '🌅', text: '日出' }, { icon: '🏔️', text: '雪山' }, { icon: '🏖️', text: '海滩' }, { icon: '🌲', text: '森林' },
+    // 萌宠
+    { icon: '🐱', text: '猫咪特写' }, { icon: '🐕', text: '狗狗' }, { icon: '💤', text: '睡觉的猫' }, { icon: '🐾', text: '奔跑的狗' },
+    // 美食
+    { icon: '🍲', text: '火锅' }, { icon: '🍰', text: '蛋糕' }, { icon: '☕', text: '咖啡' }, { icon: '🥢', text: '家庭聚餐' },
+    // 城市生活
+    { icon: '📸', text: '街拍' }, { icon: '🌃', text: '夜景' }, { icon: '📚', text: '书店' }, { icon: '🚦', text: '繁忙的街道' },
+    // 人物摄影
+    { icon: '👨‍👩‍👧', text: '全家福' }, { icon: '💑', text: '情侣照' }, { icon: '🤳', text: '自拍' }, { icon: '🎓', text: '毕业照' },
+    // 旅行记录
+    { icon: '🗼', text: '地标建筑' }, { icon: '✈️', text: '飞机机翼' }, { icon: '🎫', text: '车票' }, { icon: '🎒', text: '旅行背包' },
+    // 实用场景 (新增)
+    { icon: '🆔', text: '证件照' }, { icon: '💬', text: '聊天截图' }, { icon: '🖼️', text: '微信图片' },
+    { icon: '👶', text: '孩子成长' }, { icon: '📝', text: '工作资料' }, { icon: '📊', text: '会议白板' },
+  ];
+
+  const refreshSuggestions = () => {
+    setIsAnimating(true);
+    setTimeout(() => {
+        // Fisher-Yates Shuffle
+        const shuffled = [...allSuggestions];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        setCurrentSuggestions(shuffled.slice(0, 4));
+        setIsAnimating(false);
+    }, 300); // 300ms transition
+  };
+
+  // 每次页面加载时随机选择一个话题和标题，并刷新建议
   React.useEffect(() => {
     const randomTopic = topics[Math.floor(Math.random() * topics.length)];
     setTopic(randomTopic);
+    
+    const randomTitle = titleVariations[Math.floor(Math.random() * titleVariations.length)];
+    setTitleParts(randomTitle);
+
+    refreshSuggestions();
   }, []);
 
   const handleSearch = async () => {
@@ -94,15 +161,16 @@ export const HomePage: React.FC = () => {
           
           <div style={{ marginBottom: 40 }}>
             <Title level={1} style={{ fontSize: '3rem', marginBottom: 16 }}>
-                <TypewriterEffect 
-                    parts={[
-                        { text: '用语言描述，' },
-                        { text: '智能搜索', style: { color: token.colorPrimary } }
-                    ]}
-                    speed={150} 
-                    cursorColor={token.colorPrimary} 
-                />
+                {titleParts.length > 0 && (
+                    <TypewriterEffect 
+                        parts={titleParts}
+                        speed={150} 
+                        cursorColor={token.colorPrimary} 
+                    />
+                )}
             </Title>
+            
+            {/* 预设话题展示区 */}
             <Paragraph style={{ fontSize: '1.2rem', color: token.colorTextSecondary }}>
               基于深度学习的图像语义理解，让您用自然语言找到任何想要的照片
             </Paragraph>
@@ -111,9 +179,13 @@ export const HomePage: React.FC = () => {
           <Card 
             bordered={false}
             style={{ 
-                boxShadow: '0 8px 24px rgba(0,0,0,0.08)', 
+                boxShadow: '0 8px 32px rgba(0,0,0,0.08)', 
                 borderRadius: 16,
-                overflow: 'hidden'
+                overflow: 'hidden',
+                backdropFilter: 'blur(12px)',
+                WebkitBackdropFilter: 'blur(12px)',
+                backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.45)' : 'rgba(255, 255, 255, 0.45)',
+                border: `1px solid ${token.colorBorderSecondary}`,
             }}
             bodyStyle={{ padding: 0 }}
           >
@@ -186,8 +258,17 @@ export const HomePage: React.FC = () => {
 
           <div style={{ marginTop: 32 }}>
             <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>试试这些搜索</Text>
-            <Space wrap size={[12, 12]} style={{ justifyContent: 'center' }}>
-                {suggestions.map((item, index) => (
+            <Space 
+                wrap 
+                size={[12, 12]} 
+                style={{ 
+                    justifyContent: 'center',
+                    opacity: isAnimating ? 0 : 1,
+                    transition: 'opacity 0.3s ease-in-out',
+                    width: '100%', // Ensure width for responsiveness
+                }}
+            >
+                {currentSuggestions.map((item, index) => (
                     <Button 
                         key={index} 
                         shape="round" 
@@ -195,13 +276,29 @@ export const HomePage: React.FC = () => {
                         onClick={() => {
                             navigate(`/gallery?q=${encodeURIComponent(item.text)}`);
                         }}
-                        style={{ height: 'auto', padding: '8px 20px' }}
+                        style={{ height: 'auto', padding: '8px 20px', minWidth: 'auto' }}
                     >
                         <span style={{ fontSize: 18, marginRight: 8 }}>{item.icon}</span>
                         {item.text}
                     </Button>
                 ))}
             </Space>
+            {/* Mobile Scroll Hint (Optional, can be added if we strictly want scroll on mobile) */}
+            <style>{`
+                @media (max-width: 576px) {
+                    .ant-space {
+                        flex-wrap: nowrap !important;
+                        overflow-x: auto;
+                        justify-content: flex-start !important;
+                        padding-bottom: 8px; /* space for scrollbar */
+                        -webkit-overflow-scrolling: touch;
+                        scrollbar-width: none; /* Firefox */
+                    }
+                    .ant-space::-webkit-scrollbar {
+                        display: none; /* Chrome/Safari */
+                    }
+                }
+            `}</style>
           </div>
 
           <div style={{ marginTop: 60 }}>
