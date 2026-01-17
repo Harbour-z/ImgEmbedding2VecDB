@@ -20,8 +20,8 @@ export interface SearchResponse {
 }
 
 export async function searchImages(params: SearchParams): Promise<SearchResponse> {
-    const { data } = await client.post('/search/', params);
-    return data;
+    const response = await client.post('/search/', params);
+    return response;
 }
 
 export async function searchByText(
@@ -30,7 +30,7 @@ export async function searchByText(
     scoreThreshold?: number,
     tags?: string[]
 ): Promise<SearchResponse> {
-    const { data } = await client.get('/search/text', {
+    const response = await client.get('/search/text', {
         params: {
             query,
             top_k: topK,
@@ -38,7 +38,7 @@ export async function searchByText(
             tags
         }
     });
-    return data;
+    return response;
 }
 
 export async function searchByImageId(
@@ -46,11 +46,11 @@ export async function searchByImageId(
     topK: number = 10,
     scoreThreshold?: number
 ): Promise<SearchResponse> {
-    const { data } = await client.get(`/search/image/${imageId}`, {
+    const response = await client.get(`/search/image/${imageId}`, {
         params: {
             top_k: topK,
             score_threshold: scoreThreshold
         }
     });
-    return data;
+    return response;
 }
