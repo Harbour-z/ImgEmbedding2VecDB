@@ -44,8 +44,10 @@ client.interceptors.response.use(
     },
     (error: AxiosError) => {
         let message = '请求失败';
-        
-        if (error.code === 'ECONNABORTED') {
+
+        if (axios.isCancel(error) || error.code === 'ERR_CANCELED') {
+            message = '请求已取消或超时，请稍后重试';
+        } else if (error.code === 'ECONNABORTED') {
             message = '请求超时，请检查网络连接或稍后重试';
         } else if (error.response) {
             // 后端返回的错误信息

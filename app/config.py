@@ -3,7 +3,6 @@
 支持环境变量和默认配置的灵活切换
 """
 
-import os
 from pathlib import Path
 from typing import Optional
 from pydantic_settings import BaseSettings
@@ -22,12 +21,8 @@ class Settings(BaseSettings):
     API_PREFIX: str = "/api/v1"
 
     # Embedding模型配置
-    MODEL_PATH: str = os.environ.get(
-        "MODEL_PATH",
-        str(Path(__file__).parent.parent / "qwen3-vl-embedding-2B")
-    )
-    # 新增：CUDA设备号（默认为 "0"）
-    CUDA_DEVICE: str = os.environ.get("CUDA_DEVICE", "0")
+    MODEL_PATH: str = str(Path(__file__).parent.parent / "qwen3-vl-embedding-2B")
+    CUDA_DEVICE: str = "0"
 
     MAX_LENGTH: int = 8192
     MIN_PIXELS: int = 4 * 32 * 32  # 4 * IMAGE_FACTOR^2
@@ -49,14 +44,21 @@ class Settings(BaseSettings):
     MAX_FILE_SIZE: int = 50 * 1024 * 1024  # 50MB
     ALLOWED_EXTENSIONS: set = {"jpg", "jpeg", "png", "gif", "webp", "bmp"}
 
-    # Agent集成配置（预留）
-    AGENT_ENABLED: bool = False
-    AGENT_ENDPOINT: Optional[str] = None
+    # Agent集成配置
+    AGENT_ENABLED: bool = True
+    AGENT_PROVIDER: str = "openai"
+    OPENAI_API_KEY: Optional[str] = None
+    OPENAI_BASE_URL: str = "https://api.openai.com/v1"
+    OPENAI_MODEL_NAME: str = "gpt-4o"
 
+    LLM_SSL_VERIFY: bool = False
+    LLM_SSL_CERT: Optional[str] = None
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = True
+        extra = "ignore" # 允许.env中存在未在Settings中定义的字段
 
 
 @lru_cache()

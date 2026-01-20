@@ -470,11 +470,33 @@ async def agent_chat(
     if not session_id:
         session_id = agent_svc.create_session()
 
-    session = agent_svc.get_session(session_id)
-    if not session:
-        session_id = agent_svc.create_session()
+    agent_svc.ensure_session(session_id)
 
     # 1. 意图识别
+    # 优先使用 ReAct Agent 进行智能对话和意图处理
+    if agent_svc.is_initialized and agent_svc._agent:
+        try:
+            # ReAct Agent 会自动判断是否需要调用工具（如搜索）
+            # 对于 "你好"、"你是谁" 等闲聊，它会直接回复而不调用工具
+            agent_result = await agent_svc.chat(message.query, session_id)
+            response = agent_result.get("answer", "")
+            images = agent_result.get("images") or []
+            
+            return ChatResponse(
+                session_id=session_id,
+                answer=response,
+                intent="auto", # 由Agent自动决策
+                optimized_query=message.query,
+                results={"total": len(images), "images": images} if images else None,
+                suggestions=[],
+                timestamp=datetime.now().isoformat()
+            )
+        except Exception as e:
+            # Agent 执行失败，回退到规则引擎
+            import logging
+            logging.getLogger(__name__).error(f"Agent execution failed, falling back to rule-based engine: {e}")
+
+    # --- 以下为降级处理逻辑 (Rule-based) ---
     intent_result = agent_svc.detect_intent(message.query)
     intent = intent_result["intent"]
 
@@ -499,6 +521,10 @@ async def agent_chat(
             "total": len(search_results),
             "images": search_results
         }
+    
+    elif intent == "chat":
+        # 普通聊天，没有特定操作
+        results = {}
 
     elif intent == "delete":
         results = {"message": "删除功能需要指定图片ID，请使用 /agent/execute 接口"}

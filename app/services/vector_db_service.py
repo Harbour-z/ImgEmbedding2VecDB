@@ -15,9 +15,11 @@ from qdrant_client.http.models import (
     VectorParams,
     PointStruct,
     Filter,
+    HasIdCondition,
     FieldCondition,
     MatchValue,
     MatchAny,
+    DatetimeRange,
     UpdateResult,
     ScoredPoint,
 )
@@ -368,7 +370,10 @@ class VectorDBService:
         top_k: int = 10,
         score_threshold: Optional[float] = None,
         filter_tags: Optional[List[str]] = None,
-        filter_conditions: Optional[Dict[str, Any]] = None
+        filter_conditions: Optional[Dict[str, Any]] = None,
+        filter_created_at_from: Optional[datetime] = None,
+        filter_created_at_to: Optional[datetime] = None,
+        filter_ids: Optional[List[Union[int, str]]] = None
     ) -> List[Dict[str, Any]]:
         """
         向量相似度搜索
@@ -397,6 +402,9 @@ class VectorDBService:
         query_filter = None
         conditions = []
 
+        if filter_ids:
+            conditions.append(HasIdCondition(has_id=filter_ids))
+
         if filter_tags:
             conditions.append(
                 FieldCondition(
@@ -413,6 +421,17 @@ class VectorDBService:
                         match=MatchValue(value=value)
                     )
                 )
+
+        if filter_created_at_from or filter_created_at_to:
+            conditions.append(
+                FieldCondition(
+                    key="created_at",
+                    range=DatetimeRange(
+                        gte=filter_created_at_from,
+                        lt=filter_created_at_to,
+                    ),
+                )
+            )
 
         if conditions:
             query_filter = Filter(must=conditions)
@@ -451,7 +470,9 @@ class VectorDBService:
         self,
         limit: int = 100,
         offset: Optional[str] = None,
-        filter_tags: Optional[List[str]] = None
+        filter_tags: Optional[List[str]] = None,
+        filter_created_at_from: Optional[datetime] = None,
+        filter_created_at_to: Optional[datetime] = None
     ) -> tuple[List[Dict[str, Any]], Optional[str]]:
         """
         分页遍历所有记录
@@ -468,15 +489,28 @@ class VectorDBService:
             raise RuntimeError("向量数据库未初始化")
 
         query_filter = None
+        conditions = []
         if filter_tags:
-            query_filter = Filter(
-                must=[
-                    FieldCondition(
-                        key="tags",
-                        match=MatchAny(any=filter_tags)
-                    )
-                ]
+            conditions.append(
+                FieldCondition(
+                    key="tags",
+                    match=MatchAny(any=filter_tags)
+                )
             )
+
+        if filter_created_at_from or filter_created_at_to:
+            conditions.append(
+                FieldCondition(
+                    key="created_at",
+                    range=DatetimeRange(
+                        gte=filter_created_at_from,
+                        lt=filter_created_at_to,
+                    ),
+                )
+            )
+
+        if conditions:
+            query_filter = Filter(must=conditions)
 
         results, next_offset = self._client.scroll(
             collection_name=self._collection_name,
