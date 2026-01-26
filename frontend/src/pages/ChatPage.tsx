@@ -110,7 +110,7 @@ export const ChatPage: React.FC = () => {
                             {msg.images.map(img => (
                                 <div key={img.id} style={{ width: 100, height: 100, borderRadius: 4, overflow: 'hidden', display: 'inline-block' }}>
                                     <Image
-                                        src={img.preview_url}
+                                        src={img.preview_url || img.metadata?.file_path}
                                         width={100}
                                         height={100}
                                         style={{ objectFit: 'cover' }}

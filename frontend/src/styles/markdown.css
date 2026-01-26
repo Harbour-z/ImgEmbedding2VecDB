@@ -154,12 +154,14 @@
 }
 
 .markdown-content img {
-  max-width: 100%;
+  max-width: 80%;
   height: auto;
   border-radius: 8px;
   margin: 12px 0;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   display: block;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .markdown-content table {
@@ -321,6 +323,10 @@
   .markdown-content code {
     font-size: 0.85em;
   }
+
+  .markdown-content img {
+    max-width: 90%;
+  }
 }
 
 @media (max-width: 480px) {
@@ -340,5 +346,9 @@
   .markdown-content .code-block {
     font-size: 12px;
     padding: 8px 12px;
+  }
+
+  .markdown-content img {
+    max-width: 100%;
   }
 }
