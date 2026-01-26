@@ -4,7 +4,7 @@ AI Agent框架集成预留接口
 """
 
 from typing import Optional, Dict, Any, List
-from fastapi import APIRouter, HTTPException, Depends, Body
+from fastapi import APIRouter, HTTPException, Depends, Body, BackgroundTasks
 from pydantic import BaseModel, Field
 
 from ..models import (
@@ -506,6 +506,7 @@ class ChatResponse(BaseModel):
 )
 async def agent_chat(
     message: ChatMessage,
+    background_tasks: BackgroundTasks,
     search_svc: SearchService = Depends(get_search_service),
     agent_svc: AgentService = Depends(get_agent_service)
 ):
@@ -566,6 +567,18 @@ async def agent_chat(
                     f"推荐ID={recommendation.get('recommended_image_id')}, "
                     f"备选数量={len(recommendation.get('alternative_image_ids', []))}, "
                     f"提示删除={recommendation.get('user_prompt_for_deletion')}"
+                )
+            
+            # 启动点云后台监控（如果有）
+            pointcloud_id = agent_result.get("pointcloud_id")
+            if pointcloud_id:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"[API] 检测到点云生成任务，启动后台监控: {pointcloud_id}")
+                background_tasks.add_task(
+                    agent_svc._monitor_and_update_pointcloud,
+                    pointcloud_id=pointcloud_id,
+                    session_id=session_id
                 )
             
             return chat_response

@@ -64,7 +64,8 @@ class Settings(BaseSettings):
     # 3DGS点云生成服务配置
     # ML-Sharp API 服务器默认运行在 localhost:5000
     POINTCLOUD_SERVICE_URL: str = "http://localhost:5000"
-    POINTCLOUD_SERVICE_TIMEOUT: int = 300  # 5分钟超时
+    POINTCLOUD_SERVICE_TIMEOUT: int = 300  # 5分钟超时（API调用）
+    POINTCLOUD_MONITOR_TIMEOUT: int = 300  # 5分钟监控等待时间（后台监控）
     POINTCLOUD_STORAGE_PATH: str = str(Path(__file__).parent.parent / "storage" / "pointclouds")
 
     # Multi-modal Visual Understanding Model Configuration

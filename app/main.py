@@ -31,6 +31,7 @@ from .routers import (
     image_recommendation_router,
     image_edit_router,
     pointcloud_router,
+    knowledge_qa_router,
 )
 from .models import SystemStatus
 
@@ -200,6 +201,7 @@ def create_app() -> FastAPI:
     app.include_router(image_recommendation_router, prefix=api_prefix)
     app.include_router(image_edit_router, prefix=api_prefix)
     app.include_router(pointcloud_router, prefix=api_prefix)
+    app.include_router(knowledge_qa_router, prefix=api_prefix)
 
     # 全局异常处理
     @app.exception_handler(Exception)

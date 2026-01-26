@@ -242,7 +242,11 @@ class AgentService:
         - agent_execute_action: 执行Agent动作（/agent/execute）
         - get_current_time: 获取当前时间（/agent/time）
         - get_photo_meta_schema: 获取元数据字段定义（/agent/meta/schema）
+        - generate_social_media_caption: 朋友圈/小红书文案生成（/social/caption）
+        - recommend_images: 智能图片推荐（/image-recommendation/analyze）
+        - edit_image: 图片编辑和风格转换（/image-edit/edit）
         - generate_pointcloud: 3D点云生成（/pointcloud/generate）
+        - knowledge_qa: 基于图片的智能知识问答（/knowledge-qa/qa）
         """
         settings = get_settings()
         
@@ -656,6 +660,25 @@ class AgentService:
         )
         self._tools.append(tool_generate_pointcloud)
 
+        tool_knowledge_qa = RestfulApi(
+            name="knowledge_qa",
+            description="基于图片的智能知识问答工具。使用多模态模型（qwen3-vl-plus）对图片进行深度理解和分析，结合用户问题提供准确、有用的回答。适用于以下场景：1. 植物识别与养护：如'这是什么植物？'、'多肉植物怎么养？'；2. 情感分析与祝福：如'这张照片里妈妈开心吗？'、'帮我写个生日祝福文案'；3. 物体识别与推荐：如'冰箱里有什么食材？'、'用这些食材推荐个菜谱'；4. 通用问答：如'这是什么地方？'、'图片里有什么内容？'。重要：必须先通过检索工具获取图片ID才能使用此工具。",
+            params=[
+                Param(name="image_uuid", description="存储在系统storage中的图片的唯一标识符（UUID）。通常来自先前的图片检索结果。", param_type="string", required=True),
+                Param(name="question", description="用户的问题，例如：'这是什么植物？'、'妈妈开心吗？'、'有什么食材？'", param_type="string", required=True),
+                Param(name="context", description="额外上下文信息（可选），例如：'这是妈妈60岁生日'、'准备做晚餐'", param_type="string", required=False, default_value="")
+            ],
+            path=f"{api_base}{api_prefix}/knowledge-qa/qa",
+            headers={"Content-Type": "application/json"},
+            method="POST",
+            response=[
+                Param(name="status", description="响应状态", param_type="string"),
+                Param(name="message", description="响应消息", param_type="string"),
+                Param(name="answer", description="模型生成的回答内容", param_type="string")
+            ]
+        )
+        self._tools.append(tool_knowledge_qa)
+
     @property
     def is_initialized(self) -> bool:
         return self._initialized
@@ -738,30 +761,43 @@ class AgentService:
                 self._update_history(session_id, query, response)
 
             # 提取回复中的图片链接
-            images = self._extract_images_from_response(response)
+            images = self._extract_images_from_response(response, query)
             logger.info(f"[Agent] 返回图片数量: {len(images)}")
 
-            # 提取推荐信息
-            recommendation = self._extract_recommendation_from_response(
-                response=response,
-                context_images=images
-            )
+            # 初始化推荐信息
+            recommendation = {
+                "recommended_image_id": None,
+                "alternative_image_ids": [],
+                "recommendation_reason": "",
+                "total_images_analyzed": 0,
+                "user_prompt_for_deletion": False
+            }
 
-            # 如果没有识别到推荐但有图片，检查是否是分析多张图片的场景
-            if (not recommendation.get("recommended_image_id") and 
-                len(images) > 0 and
-                any(keyword in query.lower() for keyword in ["最好", "推荐", "分析", "比较", "哪一张"])):
-                # 从图片列表中推断推荐
-                if len(images) > 1:
-                    logger.info(f"[Agent] 检测到多图片分析场景，使用第一张作为推荐")
-                    recommendation["recommended_image_id"] = images[0].get("id")
-                    recommendation["alternative_image_ids"] = [img.get("id") for img in images[1:]]
-                    recommendation["user_prompt_for_deletion"] = True
-                    recommendation["total_images_analyzed"] = len(images)
-                elif len(images) == 1:
-                    recommendation["recommended_image_id"] = images[0].get("id")
-                    recommendation["alternative_image_ids"] = []
-                    recommendation["total_images_analyzed"] = 1
+            # 判断是否为点云生成场景
+            is_pointcloud = self._detect_pointcloud_generation(query)
+
+            # 只在非点云生成场景下提取推荐信息
+            if not is_pointcloud:
+                recommendation = self._extract_recommendation_from_response(
+                    response=response,
+                    context_images=images,
+                    is_pointcloud_generation=False
+                )
+            else:
+                # 点云生成场景下，检查是否为多图片分析场景
+                if (len(images) > 0 and
+                    any(keyword in query.lower() for keyword in ["最好", "推荐", "分析", "比较", "哪一张"])):
+                    # 从图片列表中推断推荐
+                    if len(images) > 1:
+                        logger.info(f"[Agent] 检测到多图片分析场景，使用第一张作为推荐")
+                        recommendation["recommended_image_id"] = images[0].get("id")
+                        recommendation["alternative_image_ids"] = [img.get("id") for img in images[1:]]
+                        recommendation["user_prompt_for_deletion"] = True
+                        recommendation["total_images_analyzed"] = len(images)
+                    elif len(images) == 1:
+                        recommendation["recommended_image_id"] = images[0].get("id")
+                        recommendation["alternative_image_ids"] = []
+                        recommendation["total_images_analyzed"] = 1
 
             # 判断是否返回推荐信息
             has_recommendation = (
@@ -776,17 +812,15 @@ class AgentService:
                     f"备选数量={len(recommendation['alternative_image_ids'])}"
                 )
 
-            # 检测是否为点云生成请求，启动后台监控
+            # 检测是否为点云生成请求，返回点云ID供前端使用
             pointcloud_id = None
             if self._detect_pointcloud_generation(query):
                 pointcloud_id = self._extract_pointcloud_id_from_response(response)
                 if pointcloud_id:
-                    logger.info(f"[Agent] 检测到点云生成任务，启动后台监控: {pointcloud_id}")
-                    # 启动后台监控任务（不阻塞主响应）
-                    asyncio.create_task(self._monitor_and_update_pointcloud(
-                        pointcloud_id=pointcloud_id,
-                        session_id=session_id
-                    ))
+                    logger.info(f"[Agent] 检测到点云生成任务，返回点云ID: {pointcloud_id}")
+                    # 注意：后台监控任务由API路由层使用BackgroundTasks启动
+                else:
+                    logger.warning(f"[Agent] 点云生成请求但未找到点云ID")
 
             return {
                 "answer": response,
@@ -826,18 +860,24 @@ class AgentService:
     async def _monitor_pointcloud_generation(
         self,
         pointcloud_id: str,
-        max_wait_seconds: int = 120
+        max_wait_seconds: Optional[int] = None
     ) -> Optional[str]:
         """
         监控点云生成状态，等待预览链接
 
         Args:
             pointcloud_id: 点云ID
-            max_wait_seconds: 最大等待时间（秒），默认2分钟
+            max_wait_seconds: 最大等待时间（秒），默认从配置读取
 
         Returns:
             预览URL，如果超时或失败则返回None
         """
+        from ..config import get_settings
+        settings = get_settings()
+        
+        # 如果未指定，从配置读取监控超时时间
+        if max_wait_seconds is None:
+            max_wait_seconds = settings.POINTCLOUD_MONITOR_TIMEOUT
         from ..services import get_pointcloud_service
         pointcloud_svc = get_pointcloud_service()
 
@@ -895,16 +935,23 @@ class AgentService:
             session_id: 会话ID（可选）
         """
         try:
-            logger.info(f"[Agent] 后台监控点云任务开始: {pointcloud_id}")
+            logger.info(f"[Agent] ========== 后台监控点云任务开始 ==========")
+            logger.info(f"[Agent] 点云ID: {pointcloud_id}")
+            logger.info(f"[Agent] 会话ID: {session_id}")
 
             # 监控点云生成状态
+            logger.info(f"[Agent] 开始调用 _monitor_pointcloud_generation...")
             view_url = await self._monitor_pointcloud_generation(pointcloud_id)
+            logger.info(f"[Agent] _monitor_pointcloud_generation 返回: {view_url}")
 
             if view_url:
+                logger.info(f"[Agent] 点云生成成功，获取详细信息...")
                 # 获取点云详细信息
                 from ..services import get_pointcloud_service
                 pointcloud_svc = get_pointcloud_service()
                 pointcloud_info = pointcloud_svc.get_pointcloud(pointcloud_id)
+                
+                logger.info(f"[Agent] 点云信息: {pointcloud_info}")
 
                 if pointcloud_info:
                     # 构造更新消息
@@ -920,6 +967,7 @@ class AgentService:
 
                     # 更新会话历史
                     if session_id:
+                        logger.info(f"[Agent] 更新会话历史...")
                         session = self.get_session(session_id)
                         if session:
                             # 添加系统更新消息
@@ -931,13 +979,21 @@ class AgentService:
                                 "pointcloud_id": pointcloud_id,
                                 "view_url": view_url
                             })
-                            logger.info(f"[Agent] 会话已更新，点云完成事件已添加: {session_id}")
+                            logger.info(f"[Agent] ✅ 会话已更新，点云完成事件已添加: {session_id}")
+                        else:
+                            logger.error(f"[Agent] ❌ 会话不存在: {session_id}")
+                    else:
+                        logger.warning(f"[Agent] ⚠️  会话ID为空，无法更新会话")
+                else:
+                    logger.error(f"[Agent] ❌ 无法获取点云信息: {pointcloud_id}")
             else:
                 # 超时或失败
-                logger.info(f"[Agent] 点云生成未能在预期时间内完成: {pointcloud_id}")
+                logger.info(f"[Agent] ⚠️  点云生成未能在预期时间内完成: {pointcloud_id}")
+            
+            logger.info(f"[Agent] ========== 后台监控点云任务结束 ==========")
 
         except Exception as e:
-            logger.error(f"[Agent] 后台监控点云任务异常: {e}", exc_info=True)
+            logger.error(f"[Agent] ❌ 后台监控点云任务异常: {e}", exc_info=True)
 
     def _extract_pointcloud_id_from_response(self, response: str) -> Optional[str]:
         """
@@ -951,19 +1007,36 @@ class AgentService:
         """
         import re
 
+        # 按优先级匹配模式，先匹配带明确前缀的，最后才匹配纯UUID
         patterns = [
             r'点云ID[:\s]*([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})',
             r'pointcloud_id[:\s]*([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})',
             r'任务ID[:\s]*([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})',
-            r'([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})'  # 直接匹配UUID格式
         ]
 
+        # 先匹配带明确前缀的ID
         for pattern in patterns:
             matches = re.findall(pattern, response, re.IGNORECASE)
             if matches:
                 pointcloud_id = matches[0].lower()
-                logger.info(f"[Agent] 从回复中提取到点云ID: {pointcloud_id}")
+                logger.info(f"[Agent] 从回复中提取到点云ID（带前缀）: {pointcloud_id}")
                 return pointcloud_id
+
+        # 如果没有找到带前缀的ID，则匹配纯UUID（但排除图片URL中的）
+        # 匹配所有UUID
+        uuid_pattern = r'([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})'
+        all_uuids = re.findall(uuid_pattern, response, re.IGNORECASE)
+        
+        if all_uuids:
+            # 过滤掉在图片URL中出现的UUID
+            for uuid_match in all_uuids:
+                uuid_lower = uuid_match.lower()
+                # 检查这个UUID是否出现在图片URL中
+                if f'/api/v1/storage/images/{uuid_lower}' not in response.lower() and \
+                   f'/storage/images/{uuid_lower}' not in response.lower():
+                    pointcloud_id = uuid_lower
+                    logger.info(f"[Agent] 从回复中提取到点云ID（纯UUID）: {pointcloud_id}")
+                    return pointcloud_id
 
         return None
 
@@ -985,7 +1058,7 @@ class AgentService:
         query_lower = query.lower()
         return any(keyword in query_lower for keyword in pointcloud_keywords)
 
-    def _extract_images_from_response(self, response: str) -> List[Dict[str, Any]]:
+    def _extract_images_from_response(self, response: str, query: str = "") -> List[Dict[str, Any]]:
         """
         从 Agent 回复中提取图片信息
         
@@ -995,6 +1068,7 @@ class AgentService:
         
         Args:
             response: Agent 生成的回复文本
+            query: 用户原始查询（用于判断是否为点云生成场景）
             
         Returns:
             图片信息列表，每个包含 id, preview_url, score
@@ -1003,6 +1077,9 @@ class AgentService:
         images = []
         
         logger.debug(f"[Agent] 原始回复内容:\n{response}")
+        
+        # 检查是否为点云生成场景
+        is_pointcloud_generation = self._detect_pointcloud_generation(query)
         
         # 匹配 Markdown 图片格式: ![alt](url)
         # 使用 re.DOTALL 匹配多行
@@ -1016,6 +1093,21 @@ class AgentService:
             # 提取图片 ID
             if "/api/v1/storage/images/" in url:
                 image_id = url.split("/")[-1]
+                
+                # 如果是点云生成场景，验证ID是否为真实图片ID
+                if is_pointcloud_generation:
+                    # 尝试从存储服务验证图片是否存在
+                    try:
+                        from ..services import get_storage_service
+                        storage_svc = get_storage_service()
+                        if storage_svc.is_initialized:
+                            image_info = storage_svc.get_image_info(image_id)
+                            if not image_info:
+                                logger.info(f"[Agent] 在点云生成场景中，排除非图片ID: {image_id}")
+                                continue
+                    except Exception as e:
+                        logger.warning(f"[Agent] 验证图片信息失败: {e}")
+                
                 # 尝试从存储服务获取完整的图片信息
                 try:
                     from ..services import get_storage_service
@@ -1051,7 +1143,8 @@ class AgentService:
     def _extract_recommendation_from_response(
         self,
         response: str,
-        context_images: Optional[List[Dict[str, Any]]] = None
+        context_images: Optional[List[Dict[str, Any]]] = None,
+        is_pointcloud_generation: bool = False
     ) -> Dict[str, Any]:
         """
         从 Agent 回复中提取图片推荐信息
@@ -1064,6 +1157,7 @@ class AgentService:
         Args:
             response: Agent 生成的回复文本
             context_images: 上下文中的图片列表（降级使用）
+            is_pointcloud_generation: 是否为点云生成场景
             
         Returns:
             推荐信息字典，包含 recommended_image_id, alternative_image_ids, 
@@ -1082,6 +1176,11 @@ class AgentService:
             "total_images_analyzed": 0,
             "user_prompt_for_deletion": False
         }
+        
+        # 点云生成场景下，不进行推荐提取
+        if is_pointcloud_generation:
+            logger.info(f"[Agent] 点云生成场景，跳过推荐提取")
+            return recommendation
         
         # 方法1: 从文本中提取所有图片ID（UUID格式）
         uuid_pattern = r'[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}'
