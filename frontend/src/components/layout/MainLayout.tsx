@@ -50,6 +50,11 @@ const MainLayout: React.FC = () => {
       icon: <CloudUploadOutlined />,
       label: '上传图片',
     },
+    {
+      key: '/markdown-test',
+      icon: <BulbOutlined />,
+      label: 'Markdown测试',
+    },
   ];
 
   return (

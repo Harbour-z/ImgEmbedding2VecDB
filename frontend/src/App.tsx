@@ -4,6 +4,7 @@ import { ChatPage } from './pages/ChatPage';
 import { GalleryPage } from './pages/GalleryPage';
 import { UploadPage } from './pages/UploadPage';
 import { ArchitecturePage } from './pages/ArchitecturePage';
+import { MarkdownTestPage } from './pages/MarkdownTestPage';
 import MainLayout from './components/layout/MainLayout';
 
 function App() {
@@ -16,6 +17,7 @@ function App() {
           <Route path="gallery" element={<GalleryPage />} />
           <Route path="upload" element={<UploadPage />} />
           <Route path="architecture" element={<ArchitecturePage />} />
+          <Route path="markdown-test" element={<MarkdownTestPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

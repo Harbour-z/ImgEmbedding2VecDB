@@ -22,6 +22,7 @@ import {
 } from '@ant-design/icons';
 import { useChatStore } from '../store/chatStore';
 import type { ChatMessage } from '../api/types';
+import { MarkdownRenderer } from '../components/common/MarkdownRenderer';
 
 const { Content, Footer } = Layout;
 const { Text } = Typography;
@@ -81,9 +82,13 @@ export const ChatPage: React.FC = () => {
               }}
               styles={{ body: { padding: '12px 16px' } }}
             >
-              <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
-                {msg.content}
-              </div>
+              {isUser ? (
+                <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+                  {msg.content}
+                </div>
+              ) : (
+                <MarkdownRenderer content={msg.content} />
+              )}
             </Card>
 
             {/* Images */}
