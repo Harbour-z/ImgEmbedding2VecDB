@@ -12,7 +12,11 @@ from ..models import (
     AgentRequest,
     AgentResponse,
     ResponseStatus,
+    BaseResponse,
     SearchRequest,
+    ImageRecommendation,
+    DeleteConfirmationRequest,
+    DeleteConfirmationResponse,
 )
 from ..services import (
     get_search_service,
@@ -25,6 +29,8 @@ from ..services import (
     EmbeddingService,
     get_agent_service,
     AgentService,
+    get_image_recommendation_service,
+    ImageRecommendationService,
 )
 
 router = APIRouter(prefix="/agent", tags=["Agent Integration"])
@@ -47,12 +53,14 @@ class AgentInterface:
         search_service: SearchService,
         storage_service: StorageService,
         vector_db_service: VectorDBService,
-        embedding_service: EmbeddingService
+        embedding_service: EmbeddingService,
+        image_recommendation_service: ImageRecommendationService
     ):
         self.search_service = search_service
         self.storage_service = storage_service
         self.vector_db_service = vector_db_service
         self.embedding_service = embedding_service
+        self.image_recommendation_service = image_recommendation_service
 
     def get_available_actions(self) -> List[Dict[str, Any]]:
         """
@@ -101,14 +109,14 @@ class AgentInterface:
             },
             {
                 "action": "analyze",
-                "description": "分析图片内容（预留）",
+                "description": "分析图片内容，使用qwen3-vl-plus多模态模型进行深度分析，从构图美学、色彩搭配、光影运用、主题表达、情感传达、创意独特性、故事性等维度进行评估",
                 "parameters": {
                     "image_id": {"type": "string", "description": "图片ID", "required": True}
                 }
             }
         ]
 
-    def execute_action(
+    async def execute_action(
         self,
         action: AgentAction,
         parameters: Dict[str, Any],
@@ -134,7 +142,7 @@ class AgentInterface:
         elif action == AgentAction.UPDATE:
             return self._execute_update(parameters)
         elif action == AgentAction.ANALYZE:
-            return self._execute_analyze(parameters)
+            return await self._execute_analyze(parameters)
         else:
             raise ValueError(f"不支持的动作类型: {action}")
 
@@ -219,13 +227,63 @@ class AgentInterface:
         }
 
     def _execute_analyze(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """执行分析动作（预留）"""
-        # 预留：接入VLM进行图片内容分析
-        return {
-            "success": False,
-            "action": "analyze",
-            "message": "图片分析功能暂未实现，将在后续版本中支持"
-        }
+        """执行分析动作"""
+        if not self.image_recommendation_service.is_initialized:
+            raise RuntimeError("图片推荐服务未初始化")
+            
+        image_id = params.get("image_id")
+        if not image_id:
+            raise ValueError("必须提供image_id")
+        
+        # 从存储服务获取图片数据
+        image_path = self.storage_service.get_image_path(image_id)
+        if not image_path:
+            raise ValueError(f"图片不存在: {image_id}")
+        
+        # 读取图片数据
+        try:
+            with open(image_path, 'rb') as f:
+                image_data = f.read()
+        except Exception as e:
+            raise RuntimeError(f"无法读取图片 {image_id}: {e}")
+        
+        # 使用图片推荐服务进行分析
+        try:
+            import asyncio
+            result = asyncio.run(self.image_recommendation_service.recommend_images(
+                images=[image_data],
+                image_ids=[image_id],
+                user_preference=""
+            ))
+            
+            if result.get("success"):
+                analysis = result.get("data", {}).get("analysis", {})
+                image_key = list(analysis.keys())[0] if analysis else image_id
+                image_analysis = analysis.get(image_key, {})
+                
+                return {
+                    "success": True,
+                    "action": "analyze",
+                    "result": {
+                        "image_id": image_id,
+                        "analysis": image_analysis,
+                        "model_used": result.get("data", {}).get("model_used", "unknown")
+                    },
+                    "message": f"图片 {image_id} 分析完成"
+                }
+            else:
+                return {
+                    "success": False,
+                    "action": "analyze",
+                    "message": result.get("error", "图片分析失败")
+                }
+        except Exception as e:
+            logger.error(f"图片分析失败: {e}", exc_info=True)
+            return {
+                "success": False,
+                "action": "analyze",
+                "message": f"图片分析失败: {str(e)}"
+            }
 
     def get_system_status(self) -> Dict[str, Any]:
         """获取系统状态，供Agent了解当前系统能力"""
@@ -252,7 +310,8 @@ def get_agent_interface() -> AgentInterface:
             search_service=get_search_service(),
             storage_service=get_storage_service(),
             vector_db_service=get_vector_db_service(),
-            embedding_service=get_embedding_service()
+            embedding_service=get_embedding_service(),
+            image_recommendation_service=get_image_recommendation_service()
         )
 
     return _agent_interface
@@ -285,14 +344,14 @@ async def get_available_actions():
     - upload: 上传图片（预留）
     - delete: 删除图片
     - update: 更新图片信息
-    - analyze: 分析图片内容（预留）
+    - analyze: 分析图片内容，使用qwen3-vl-plus多模态模型进行深度分析
     """
 )
 async def execute_agent_action(request: AgentRequest):
     """执行Agent动作"""
     agent = get_agent_interface()
 
-    result = agent.execute_action(
+    result = await agent.execute_action(
         action=request.action,
         parameters=request.parameters,
         context=request.context
@@ -413,6 +472,7 @@ class ChatResponse(BaseModel):
     optimized_query: str = Field(..., description="优化后的查询")
     results: Optional[Dict[str, Any]] = Field(None, description="搜索结果")
     suggestions: List[str] = Field(default_factory=list, description="后续建议")
+    recommendation: Optional[ImageRecommendation] = Field(None, description="图片推荐信息")
     timestamp: str = Field(..., description="响应时间戳")
 
 
@@ -481,20 +541,50 @@ async def agent_chat(
             agent_result = await agent_svc.chat(message.query, session_id)
             response = agent_result.get("answer", "")
             images = agent_result.get("images") or []
+            recommendation = agent_result.get("recommendation")
             
-            return ChatResponse(
+            # 构建响应
+            chat_response = ChatResponse(
                 session_id=session_id,
                 answer=response,
                 intent="auto", # 由Agent自动决策
                 optimized_query=message.query,
-                results={"total": len(images), "images": images} if images else None,
+                results={"total": len(images), "images": images} if len(images) > 0 else None,
                 suggestions=[],
+                recommendation=recommendation,
                 timestamp=datetime.now().isoformat()
             )
+            
+            # 如果有推荐信息，记录日志
+            if recommendation:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(
+                    f"[API] 返回图片推荐: "
+                    f"推荐ID={recommendation.get('recommended_image_id')}, "
+                    f"备选数量={len(recommendation.get('alternative_image_ids', []))}, "
+                    f"提示删除={recommendation.get('user_prompt_for_deletion')}"
+                )
+            
+            return chat_response
         except Exception as e:
-            # Agent 执行失败，回退到规则引擎
+            # Agent 执行失败，记录详细错误并返回有用的信息
             import logging
-            logging.getLogger(__name__).error(f"Agent execution failed, falling back to rule-based engine: {e}")
+            logger = logging.getLogger(__name__)
+            logger.error(f"Agent执行失败: {e}", exc_info=True)
+            
+            # 返回详细的错误信息
+            error_message = f"抱歉，智慧相册Agent暂时无法响应。错误信息: {str(e)}"
+            
+            return ChatResponse(
+                session_id=session_id,
+                answer=error_message,
+                intent="error",
+                optimized_query=message.query,
+                results=None,
+                suggestions=["请稍后再试", "检查网络连接", "联系管理员"],
+                timestamp=datetime.now().isoformat()
+            )
 
     # --- 以下为降级处理逻辑 (Rule-based) ---
     intent_result = agent_svc.detect_intent(message.query)
@@ -602,4 +692,210 @@ async def get_session_info(
             "history_count": len(session.get("history", [])),
             "context": session.get("context", {})
         }
+    }
+
+
+@router.get(
+    "/time",
+    summary="获取当前时间",
+    description="返回当前系统时间，格式为 YYYY-MM-DD HH:MM:SS"
+)
+async def get_current_time():
+    """获取当前系统时间"""
+    from datetime import datetime
+    return {
+        "status": "success",
+        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+
+
+@router.get(
+    "/meta/schema",
+    summary="获取图片元数据字段定义",
+    description="返回相册图片可用的元数据字段与含义，用于指导后续的元数据检索操作"
+)
+async def get_photo_meta_schema():
+    """获取图片元数据字段定义"""
+    schema = {
+        "fields": {
+            "filename": "文件名",
+            "file_size": "文件大小（字节）",
+            "width": "图片宽度",
+            "height": "图片高度",
+            "format": "图片格式（如 JPEG、PNG）",
+            "created_at": "创建时间（ISO 8601 格式，如 2026-01-18T15:30:00）",
+            "tags": "标签列表，字符串数组",
+            "description": "图片描述",
+            "extra": "扩展字段对象"
+        },
+        "date_formats": [
+            "1.18（表示1月18日）",
+            "1.18.2026 或 2026.1.18（完整日期）",
+            "1月18日 或 1月18（中文格式）",
+            "2026-01-18（ISO 格式）"
+        ],
+        "examples": [
+            {"description": "查找特定日期的照片", "usage": "使用 /api/v1/search/meta 接口，参数 date_text='1.18'"},
+            {"description": "按标签筛选", "usage": "使用 /api/v1/search/meta 接口，参数 tags='cat,outdoor'"},
+            {"description": "日期+语义组合检索", "usage": "使用 /api/v1/search/meta/hybrid 接口，参数 date_text='1.18', query='海边日落'"}
+        ]
+    }
+    return {
+        "status": "success",
+        "schema": schema
+    }
+
+
+@router.post(
+    "/recommendation/delete",
+    response_model=BaseResponse,
+    summary="根据推荐删除图片",
+    description="""
+    根据Agent的推荐结果删除图片
+    
+    使用场景：
+    1. Agent分析多张照片后推荐最佳照片
+    2. 用户确认删除其他照片
+    3. 系统执行批量删除操作
+    
+    安全机制：
+    - 必须用户明确确认（confirmed=true）
+    - 记录删除原因
+    - 返回详细的成功/失败统计
+    """
+)
+async def delete_images_by_recommendation(
+    request: DeleteConfirmationRequest,
+    storage_svc: StorageService = Depends(get_storage_service),
+    vector_db_svc: VectorDBService = Depends(get_vector_db_service)
+):
+    """
+    根据推荐删除图片
+    
+    Args:
+        request: 删除确认请求，包含图片ID列表和确认标志
+        
+    Returns:
+        删除确认响应，包含成功和失败的统计
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # 验证用户确认
+    if not request.confirmed:
+        logger.warning(f"[API] 用户未确认删除操作，拒绝执行")
+        raise HTTPException(
+            status_code=400,
+            detail="必须确认删除操作（confirmed=true）才能执行"
+        )
+    
+    # 验证图片ID列表不为空
+    if not request.image_ids:
+        logger.warning(f"[API] 图片ID列表为空")
+        raise HTTPException(
+            status_code=400,
+            detail="图片ID列表不能为空"
+        )
+    
+    logger.info(
+        f"[API] 开始批量删除图片: "
+        f"数量={len(request.image_ids)}, "
+        f"原因={request.reason}"
+    )
+    
+    # 批量删除
+    deleted_ids = []
+    failed_ids = []
+    
+    for image_id in request.image_ids:
+        try:
+            # 1. 从向量数据库删除
+            vector_db_deleted = vector_db_svc.delete(image_id)
+            
+            if vector_db_deleted:
+                # 2. 从存储服务删除
+                storage_deleted = storage_svc.delete_image(image_id)
+                
+                if storage_deleted:
+                    deleted_ids.append(image_id)
+                    logger.info(f"[API] 成功删除图片: {image_id}")
+                else:
+                    failed_ids.append(image_id)
+                    logger.warning(f"[API] 向量数据库删除成功，但存储删除失败: {image_id}")
+            else:
+                failed_ids.append(image_id)
+                logger.warning(f"[API] 向量数据库删除失败: {image_id}")
+                
+        except Exception as e:
+            failed_ids.append(image_id)
+            logger.error(f"[API] 删除图片异常: {image_id}, 错误: {e}")
+    
+    # 构建响应
+    response = DeleteConfirmationResponse(
+        deleted_count=len(deleted_ids),
+        failed_count=len(failed_ids),
+        deleted_image_ids=deleted_ids,
+        failed_image_ids=failed_ids
+    )
+    
+    logger.info(
+        f"[API] 批量删除完成: "
+        f"成功={len(deleted_ids)}, 失败={len(failed_ids)}"
+    )
+    
+    return BaseResponse(
+        status=ResponseStatus.SUCCESS,
+        message=f"成功删除 {len(deleted_ids)} 张图片，失败 {len(failed_ids)} 张",
+        data=response.dict()
+    )
+
+
+@router.post(
+    "/recommendation/preview-delete",
+    summary="预览删除操作",
+    description="""
+    预览将要删除的图片信息，但不实际删除
+    
+    用于在用户确认前展示即将删除的图片信息
+    """
+)
+async def preview_delete_operation(
+    image_ids: List[str] = Body(..., description="要预览删除的图片ID列表"),
+    storage_svc: StorageService = Depends(get_storage_service)
+):
+    """
+    预览删除操作
+    
+    Args:
+        image_ids: 图片ID列表
+        
+    Returns:
+        图片信息列表
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.info(f"[API] 预览删除操作: 数量={len(image_ids)}")
+    
+    # 获取图片信息
+    images_info = []
+    for image_id in image_ids:
+        try:
+            image_info = storage_svc.get_image_info(image_id)
+            if image_info:
+                images_info.append({
+                    "id": image_id,
+                    "filename": image_info.get("filename"),
+                    "file_size": image_info.get("file_size"),
+                    "width": image_info.get("width"),
+                    "height": image_info.get("height"),
+                    "created_at": image_info.get("created_at")
+                })
+        except Exception as e:
+            logger.warning(f"[API] 获取图片信息失败: {image_id}, 错误: {e}")
+    
+    return {
+        "status": "success",
+        "total": len(images_info),
+        "images": images_info
     }

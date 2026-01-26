@@ -32,7 +32,29 @@ export interface ChatResponse {
         images: ImageResult[];
     };
     suggestions: string[];
+    recommendation?: ImageRecommendation;
     timestamp: string;
+}
+
+export interface ImageRecommendation {
+    recommended_image_id?: string;
+    alternative_image_ids: string[];
+    recommendation_reason: string;
+    user_prompt_for_deletion: boolean;
+    total_images_analyzed: number;
+}
+
+export interface DeleteConfirmationRequest {
+    image_ids: string[];
+    confirmed: boolean;
+    reason?: string;
+}
+
+export interface DeleteConfirmationResponse {
+    deleted_count: number;
+    failed_count: number;
+    deleted_image_ids: string[];
+    failed_image_ids: string[];
 }
 
 export interface UploadResponse {

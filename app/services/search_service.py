@@ -392,10 +392,21 @@ class SearchService:
         if not self.is_initialized:
             raise RuntimeError("搜索服务未初始化")
 
-        # 生成查询向量
+        image_path = str(image) if isinstance(image, str) else "<PIL Image>"
+        logger.info(
+            f"开始以图搜图: image={image_path}, top_k={top_k}, "
+            f"score_threshold={score_threshold}, tags={filter_tags}"
+        )
+
+        # 生成查询向量 - 使用与索引相同的指令，确保向量空间一致
         query_vector = self._embedding_service.generate_image_embedding(
             image=image,
-            instruction=instruction or "Find similar images."
+            instruction=instruction or "Represent this image for retrieval."
+        )
+
+        logger.info(
+            f"查询向量生成完成: dimension={len(query_vector)}, "
+            f"first_3_values={query_vector[:3]}"
         )
 
         # 向量搜索
@@ -406,10 +417,22 @@ class SearchService:
             filter_tags=filter_tags
         )
 
+        logger.info(f"向量搜索完成: 返回 {len(results)} 条结果")
+
+        # 记录前5个结果的详细信息
+        for i, result in enumerate(results[:5]):
+            logger.info(
+                f"结果 {i+1}: id={result['id']}, score={result['score']:.4f}"
+            )
+
         # 添加预览URL
         for result in results:
             result["preview_url"] = f"/api/v1/storage/images/{result['id']}"
 
+        # 确保结果按相似度排序（降序）
+        results.sort(key=lambda x: x.get("score", 0), reverse=True)
+
+        logger.info(f"以图搜图完成，返回 {len(results)} 条结果")
         return results
 
     def search_by_image_id(
@@ -433,18 +456,33 @@ class SearchService:
         Returns:
             搜索结果列表
         """
+        logger.info(f"根据图片ID搜索相似图片: image_id={image_id}")
+
         # 获取图片路径
         image_path = self._storage_service.get_image_path(image_id)
         if not image_path:
+            logger.error(f"图片不存在: {image_id}")
             raise ValueError(f"图片不存在: {image_id}")
 
-        return self.search_by_image(
+        logger.info(f"找到图片路径: {image_path}")
+
+        results = self.search_by_image(
             image=str(image_path),
             instruction=instruction,
             top_k=top_k,
             score_threshold=score_threshold,
             filter_tags=filter_tags
         )
+
+        # 过滤掉查询图片本身（如果有）
+        filtered_results = [
+            r for r in results if r["id"] != image_id
+        ]
+
+        if len(filtered_results) != len(results):
+            logger.info(f"已过滤掉查询图片本身，返回 {len(filtered_results)} 条结果")
+
+        return filtered_results
 
     def search_hybrid(
         self,

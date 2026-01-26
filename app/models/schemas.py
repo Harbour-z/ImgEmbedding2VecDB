@@ -218,3 +218,81 @@ class SystemStatus(BaseModel):
     storage_available: bool = Field(..., description="存储是否可用")
     total_images: int = Field(0, description="图片总数")
     total_vectors: int = Field(0, description="向量总数")
+
+
+# ==================== 图片推荐模型 ====================
+
+class ImageRecommendation(BaseModel):
+    """图片推荐结果"""
+    recommended_image_id: Optional[str] = Field(None, description="推荐的最佳图片ID")
+    alternative_image_ids: List[str] = Field(default_factory=list, description="其他未被推荐的图片ID列表")
+    recommendation_reason: str = Field(..., description="推荐理由文本")
+    user_prompt_for_deletion: bool = Field(False, description="是否提示用户删除其他图片")
+    total_images_analyzed: int = Field(0, description="分析的图片总数")
+
+
+# ==================== 删除确认模型 ====================
+
+class DeleteConfirmationRequest(BaseModel):
+    """删除确认请求"""
+    image_ids: List[str] = Field(..., description="要删除的图片ID列表")
+    confirmed: bool = Field(True, description="用户是否确认删除")
+    reason: Optional[str] = Field(None, description="删除原因")
+
+
+class DeleteConfirmationResponse(BaseModel):
+    """删除确认响应"""
+    deleted_count: int = Field(0, description="已删除的图片数量")
+    failed_count: int = Field(0, description="删除失败的图片数量")
+    deleted_image_ids: List[str] = Field(default_factory=list, description="成功删除的图片ID列表")
+    failed_image_ids: List[str] = Field(default_factory=list, description="删除失败的图片ID列表")
+
+
+# ==================== 图片编辑模型 ====================
+
+class ImageEditRequest(BaseModel):
+    """图片编辑请求模型"""
+    image_id: str = Field(..., description="源图片ID")
+    prompt: str = Field(..., description="编辑提示词，例如：'将图片转换为动漫风格'")
+    negative_prompt: str = Field(" ", description="反向提示词，描述不希望出现的内容")
+    prompt_extend: bool = Field(True, description="是否开启智能提示词改写（默认为 True）")
+    n: int = Field(1, ge=1, le=6, description="生成图片数量（1-6）")
+    size: Optional[str] = Field(None, description="输出图片分辨率，格式为 '宽*高'，例如 '1024*1536'")
+    watermark: bool = Field(False, description="是否添加水印")
+    seed: Optional[int] = Field(None, description="随机数种子")
+    style_tag: Optional[str] = Field(None, description="风格标签，用于元数据记录，例如：'anime', 'cartoon'")
+
+    class Config:
+        json_schema_extra = {
+            "examples": [
+                {
+                    "image_id": "img-uuid-1234",
+                    "prompt": "将图片转换为动漫风格",
+                    "negative_prompt": "模糊，多余的手指",
+                    "prompt_extend": True,
+                    "n": 2,
+                    "style_tag": "anime"
+                }
+            ]
+        }
+
+
+class EditedImageInfo(BaseModel):
+    """编辑后的图片信息"""
+    image_id: str = Field(..., description="图片ID")
+    url: str = Field(..., description="访问URL")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数据信息")
+
+
+class ImageEditResponse(BaseResponse):
+    """图片编辑响应模型"""
+    data: Optional[Dict[str, Any]] = None
+
+
+class ImageEditResult(BaseModel):
+    """图片编辑结果详情"""
+    success: bool = Field(..., description="操作是否成功")
+    saved_images: List[EditedImageInfo] = Field(default_factory=list, description="保存的图片列表")
+    total_generated: int = Field(0, description="生成的图片总数")
+    total_saved: int = Field(0, description="成功保存的图片数量")
+    edit_result: Dict[str, Any] = Field(default_factory=dict, description="原始编辑结果")

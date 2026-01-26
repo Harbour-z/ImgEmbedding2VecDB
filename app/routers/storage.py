@@ -382,58 +382,6 @@ async def get_storage_stats(
 
 
 @router.post(
-    "/index/{image_id}",
-    response_model=BaseResponse,
-    summary="索引单张图片",
-    description="将已存储的图片索引到向量数据库"
-)
-async def index_image(
-    image_id: str,
-    tags: Optional[List[str]] = Query(None, description="标签列表"),
-    description: Optional[str] = Query(None, description="图片描述"),
-    services: tuple = Depends(get_services)
-):
-    """索引单张图片"""
-    storage_svc, search_svc, _ = services
-
-    if not search_svc.is_initialized:
-        raise HTTPException(status_code=503, detail="搜索服务未初始化")
-
-    # 获取图片信息
-    image_info = storage_svc.get_image_info(image_id)
-    if not image_info:
-        raise HTTPException(status_code=404, detail=f"图片不存在: {image_id}")
-
-    # 构建元数据
-    metadata = ImageMetadata(
-        filename=image_info["filename"],
-        file_path=image_info["file_path"],
-        file_size=image_info["file_size"],
-        width=image_info["width"],
-        height=image_info["height"],
-        format=image_info["format"],
-        created_at=image_info["created_at"],
-        tags=tags or [],
-        description=description or ""
-    )
-
-    # 索引
-    success = search_svc.index_image(
-        image_id=image_id,
-        image_path=image_info["full_path"],
-        metadata=metadata.model_dump()
-    )
-
-    if success:
-        return BaseResponse(
-            status=ResponseStatus.SUCCESS,
-            message="图片索引成功"
-        )
-    else:
-        raise HTTPException(status_code=500, detail="索引失败")
-
-
-@router.post(
     "/index/all",
     response_model=BaseResponse,
     summary="索引所有图片",
@@ -485,3 +433,55 @@ async def index_all_images(
             "total": total
         }
     )
+
+
+@router.post(
+    "/index/{image_id}",
+    response_model=BaseResponse,
+    summary="索引单张图片",
+    description="将已存储的图片索引到向量数据库"
+)
+async def index_image(
+    image_id: str,
+    tags: Optional[List[str]] = Query(None, description="标签列表"),
+    description: Optional[str] = Query(None, description="图片描述"),
+    services: tuple = Depends(get_services)
+):
+    """索引单张图片"""
+    storage_svc, search_svc, _ = services
+
+    if not search_svc.is_initialized:
+        raise HTTPException(status_code=503, detail="搜索服务未初始化")
+
+    # 获取图片信息
+    image_info = storage_svc.get_image_info(image_id)
+    if not image_info:
+        raise HTTPException(status_code=404, detail=f"图片不存在: {image_id}")
+
+    # 构建元数据
+    metadata = ImageMetadata(
+        filename=image_info["filename"],
+        file_path=image_info["file_path"],
+        file_size=image_info["file_size"],
+        width=image_info["width"],
+        height=image_info["height"],
+        format=image_info["format"],
+        created_at=image_info["created_at"],
+        tags=tags or [],
+        description=description or ""
+    )
+
+    # 索引
+    success = search_svc.index_image(
+        image_id=image_id,
+        image_path=image_info["full_path"],
+        metadata=metadata.model_dump()
+    )
+
+    if success:
+        return BaseResponse(
+            status=ResponseStatus.SUCCESS,
+            message="图片索引成功"
+        )
+    else:
+        raise HTTPException(status_code=500, detail="索引失败")

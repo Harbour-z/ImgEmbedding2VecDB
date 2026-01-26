@@ -34,6 +34,15 @@ from .schemas import (
     AgentResponse,
     # 系统
     SystemStatus,
+    # 图片推荐
+    ImageRecommendation,
+    DeleteConfirmationRequest,
+    DeleteConfirmationResponse,
+    # 图片编辑
+    ImageEditRequest,
+    EditedImageInfo,
+    ImageEditResponse,
+    ImageEditResult,
 )
 
 __all__ = [
@@ -61,4 +70,11 @@ __all__ = [
     "AgentRequest",
     "AgentResponse",
     "SystemStatus",
+    "ImageRecommendation",
+    "DeleteConfirmationRequest",
+    "DeleteConfirmationResponse",
+    "ImageEditRequest",
+    "EditedImageInfo",
+    "ImageEditResponse",
+    "ImageEditResult",
 ]

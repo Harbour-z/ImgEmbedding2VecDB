@@ -29,6 +29,13 @@ class Settings(BaseSettings):
     MAX_PIXELS: int = 1800 * 32 * 32  # 1800 * IMAGE_FACTOR^2
     DEFAULT_INSTRUCTION: str = "Represent the user's input."
 
+    # Embedding Service Configuration (API-based)
+    EMBEDDING_API_PROVIDER: str = "local"  # Options: local, aliyun
+    ALIYUN_EMBEDDING_API_KEY: Optional[str] = None
+    ALIYUN_EMBEDDING_BASE_URL: Optional[str] = None  # DashScope SDK 不需要
+    ALIYUN_EMBEDDING_MODEL_NAME: str = "qwen3-vl-embedding"
+    ALIYUN_EMBEDDING_DIMENSION: int = 2560  # 支持 2560, 2048, 1536, 1024, 768, 512, 256
+
     # Qdrant向量数据库配置
     QDRANT_MODE: str = "local"  # local | docker | cloud
     QDRANT_PATH: str = str(Path(__file__).parent.parent / "qdrant_data")
@@ -36,7 +43,7 @@ class Settings(BaseSettings):
     QDRANT_PORT: int = 6333
     QDRANT_API_KEY: Optional[str] = None
     QDRANT_COLLECTION_NAME: str = "smart_album"
-    VECTOR_DIMENSION: int = 2048  # Qwen3-VL embedding维度
+    VECTOR_DIMENSION: int = 2560  # Qwen3-VL embedding维度 (2560 for qwen3-vl-embedding)
 
     # 图片存储配置
     STORAGE_PATH: str = str(
@@ -53,6 +60,22 @@ class Settings(BaseSettings):
 
     LLM_SSL_VERIFY: bool = False
     LLM_SSL_CERT: Optional[str] = None
+
+    # Multi-modal Visual Understanding Model Configuration
+    # Supports numeric suffixes for multiple instances (e.g. VISION_MODEL_1_*)
+    VISION_MODEL_NAME: str = "qwen3-vl-plus"
+    VISION_MODEL_API_KEY: Optional[str] = None
+    VISION_MODEL_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+    # Image Generation Model Configuration (Reserved)
+    IMAGE_GENERATION_MODEL_NAME: Optional[str] = None
+    IMAGE_GENERATION_MODEL_API_KEY: Optional[str] = None
+    IMAGE_GENERATION_MODEL_BASE_URL: Optional[str] = None
+
+    # Image Editing Model Configuration (Reserved)
+    IMAGE_EDITING_MODEL_NAME: Optional[str] = None
+    IMAGE_EDITING_MODEL_API_KEY: Optional[str] = None
+    IMAGE_EDITING_MODEL_BASE_URL: Optional[str] = None
     
     class Config:
         env_file = ".env"

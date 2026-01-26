@@ -150,11 +150,25 @@ class VectorDBService:
             raise RuntimeError("向量数据库未初始化")
 
         info = self._client.get_collection(self._collection_name)
+        
+        # Qdrant 新版 API 的 CollectionInfo 结构
+        # vectors_count 和 points_count 现在在 info.params 中
+        vectors_count = 0
+        points_count = 0
+        
+        if hasattr(info, 'params') and info.params:
+            vectors_count = getattr(info.params, 'vectors_count', 0)
+            points_count = getattr(info.params, 'points_count', 0)
+        elif hasattr(info, 'vectors_count'):
+            # 兼容旧版 API
+            vectors_count = getattr(info, 'vectors_count', 0)
+            points_count = getattr(info, 'points_count', 0)
+        
         return {
             "name": self._collection_name,
-            "vectors_count": info.vectors_count,
-            "points_count": info.points_count,
-            "status": info.status.value,
+            "vectors_count": vectors_count,
+            "points_count": points_count,
+            "status": info.status.value if hasattr(info.status, 'value') else str(info.status),
             "vector_dimension": self._vector_dimension
         }
 

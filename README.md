@@ -11,7 +11,7 @@
 
 ```text
 前端（React） ──HTTP──> 后端（FastAPI /api/v1）
-                         ├─ Embedding（本地 Qwen3-VL，2048d）
+                         ├─ Embedding（本地 Qwen3-VL / 阿里云 API，2048d）
                          ├─ Qdrant（向量检索 + payload 过滤）
                          ├─ Storage（本地落盘 + 预览）
                          └─ Agent（ReAct + OpenAI兼容 fallback）
@@ -43,7 +43,12 @@ cp .env.template .env
 
 关键变量：
 
-- `MODEL_PATH`：指向本地 `qwen3-vl-embedding-2B/` 目录（项目根目录已内置一份，可保持默认）
+- `EMBEDDING_API_PROVIDER`：选择 Embedding 服务提供方式（`local` 或 `aliyun`）
+  - `local`：使用本地 qwen3-vl-embedding-2B 模型（需要 16GB+ 内存）
+  - `aliyun`：使用阿里云 DashScope qwen3-vl-embedding API 服务（推荐，无需本地模型）
+- `ALIYUN_EMBEDDING_API_KEY`：阿里云 DashScope API Key（仅当 `EMBEDDING_API_PROVIDER=aliyun` 时需要）
+- `ALIYUN_EMBEDDING_MODEL_NAME`：模型名称（默认 `qwen3-vl-embedding`）
+- `ALIYUN_EMBEDDING_DIMENSION`：向量维度（支持 2560, 2048, 1536, 1024, 768, 512, 256，默认 2560）
 - `OPENAI_API_KEY/OPENAI_BASE_URL/OPENAI_MODEL_NAME`：启用 Agent（OpenJiuwen / OpenAI兼容工具调用）时需要
 
 #### 启动后端
