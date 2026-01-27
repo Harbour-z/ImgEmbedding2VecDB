@@ -42,27 +42,32 @@ export const ChatPage: React.FC = () => {
   } = useConversationStore();
   const [inputValue, setInputValue] = useState('');
   const [showHistoryModal, setShowHistoryModal] = useState(false);
-  const [conversationId, setConversationId] = useState<string | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
   const [pendingAgentMessage, setPendingAgentMessage] = useState<ChatMessage | null>(null);
   const [processedMessageIds, setProcessedMessageIds] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
+  // Initialize conversationId from URL params
+  const getInitialConversationId = () => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('conversationId');
+  };
+  
+  const [conversationId, setConversationId] = useState<string | null>(() => getInitialConversationId());
+  
   // Load conversation from URL params
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const convId = params.get('conversationId');
+    const convId = getInitialConversationId();
     
-    // Only load if conversationId differs from current
-    if (convId && conversationId !== convId) {
-      setConversationId(convId);
+    // Only load if we have a conversationId and haven't loaded it yet
+    if (convId && !currentConversation) {
       setIsRestoring(true);
       loadConversation(convId).catch(err => {
         console.error('Failed to load conversation:', err);
         setIsRestoring(false);
       });
     }
-  }, [loadConversation, conversationId]);
+  }, [conversationId, currentConversation]);
 
   // Restore messages when currentConversation is loaded
   useEffect(() => {
@@ -105,15 +110,6 @@ export const ChatPage: React.FC = () => {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
-
-  // 定期轮询系统事件（每5秒）
-  useEffect(() => {
-    const interval = setInterval(() => {
-      pollSystemEvents();
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, [pollSystemEvents]);
 
   const handleSend = async () => {
     if (!inputValue.trim() || isLoading || isRestoring) return;

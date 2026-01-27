@@ -11,7 +11,7 @@ export interface ApiResponse<T = any> {
 
 const client: AxiosInstance = axios.create({
     baseURL: '/api/v1',
-    timeout: 600000, // 增加超时时间到600秒
+    timeout: 6000000, // 增加超时时间到600秒
     headers: {
         'Content-Type': 'application/json',
     },

@@ -206,20 +206,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
           },
 
           img({ src, alt }) {
-            return (
-              <img
-                src={src}
-                alt={alt}
-                style={{
-                  maxWidth: '100%',
-                  height: 'auto',
-                  borderRadius: '8px',
-                  margin: '12px 0',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-                }}
-                loading="lazy"
-              />
-            );
+            return null; // Prevent images from being rendered in markdown, only use msg.images
           },
 
           table({ children }) {

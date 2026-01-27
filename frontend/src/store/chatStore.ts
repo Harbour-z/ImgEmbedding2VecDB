@@ -46,7 +46,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
         // Setup AbortController for timeout (120 seconds)
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 120000);
+        const timeoutId = setTimeout(() => controller.abort(), 12000000);
 
         try {
             const response = await sendChatMessage({
@@ -84,9 +84,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                 messages: [...state.messages, agentMessage],
                 isLoading: false,
             }));
-
-            // 发送消息后开始轮询系统事件
-            get().pollSystemEvents();
         } catch (error: unknown) {
             clearTimeout(timeoutId);
             

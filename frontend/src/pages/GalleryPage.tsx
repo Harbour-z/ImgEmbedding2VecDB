@@ -42,14 +42,15 @@ export const GalleryPage: React.FC = () => {
   const locationState = (location.state ?? null) as GalleryLocationState | null;
   const initialQuery = searchParams.get('q') || '';
   const initialTopK = parseInt(searchParams.get('top_k') || '10', 10);
+  const hasImageSearchResults = !!(locationState?.searchResults && locationState.searchResults.length > 0);
   const [images, setImages] = useState<ImageResult[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!hasImageSearchResults);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [pageSize, setPageSize] = useState(24);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState(initialQuery);
-  const [isSearching, setIsSearching] = useState(!!initialQuery);
+  const [isSearching, setIsSearching] = useState(!!initialQuery || hasImageSearchResults);
   const [topK, setTopK] = useState(initialTopK);
 
   const fetchImages = useCallback(async (pageNum: number, size: number) => {
@@ -57,7 +58,6 @@ export const GalleryPage: React.FC = () => {
     try {
       const result = await listImages(pageNum, size, 'created_at', 'desc');
       
-      // Ensure result and result.data are valid
       const rawData = result && result.data ? result.data : [];
       
       const mappedImages: ImageResult[] = rawData.map(img => ({
@@ -77,9 +77,11 @@ export const GalleryPage: React.FC = () => {
       }));
       setImages(mappedImages);
       setTotal(result.total || 0);
-    } catch {
-      // message.error(err.message || '加载图片失败'); // Don't show error toast on initial load failure if it's transient
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : '加载图片失败';
+      message.error(errorMessage);
       setImages([]); 
+      setTotal(0);
     } finally {
       setLoading(false);
     }
@@ -164,15 +166,15 @@ export const GalleryPage: React.FC = () => {
 
   // Effect: Handle location state (e.g. from Image Search)
   useEffect(() => {
-    if (locationState?.searchResults) {
+    if (locationState?.searchResults && locationState.searchResults.length > 0) {
         setImages(locationState.searchResults);
         setTotal(locationState.total || locationState.searchResults.length);
         setIsSearching(true);
-        setSearchQuery(locationState.searchQuery || 'Image Search');
+        setSearchQuery(locationState.searchQuery || '图片搜索');
         setLoading(false);
         
-        // Clear state to prevent reapplying on refresh - optional but good practice
-        // window.history.replaceState({}, document.title);
+        // Clear location state to prevent reapplying on refresh
+        window.history.replaceState({}, document.title);
     }
   }, [locationState]);
 
@@ -227,12 +229,18 @@ export const GalleryPage: React.FC = () => {
           {isSearching && (
              <div style={{ marginTop: 16 }}>
                 <Text type="secondary">
-                    找到 {total} 个结果 (关键词: "{searchQuery}")
+                    找到 {total} 个结果 (搜索: "{searchQuery}")
                 </Text>
-                <Button type="link" onClick={() => {
-                    setSearchQuery('');
-                    handleSearch('');
-                }}>清除搜索</Button>
+                <Button 
+                    type="link" 
+                    onClick={() => {
+                        setSearchQuery('');
+                        setIsSearching(false);
+                        setPage(1);
+                    }}
+                >
+                    清除搜索
+                </Button>
              </div>
           )}
         </Card>
@@ -240,10 +248,15 @@ export const GalleryPage: React.FC = () => {
         {/* Content */}
         {loading ? (
           <div style={{ textAlign: 'center', padding: '50px 0' }}>
-            <Spin size="large" tip="加载中..." />
+            <Spin size="large" tip={isSearching ? "搜索中..." : "加载中..."} />
           </div>
         ) : images.length === 0 ? (
-          <Empty description="暂无图片，去上传一些吧" />
+          <Empty 
+            description={isSearching 
+              ? `未找到与"${searchQuery}"匹配的图片，请尝试其他搜索条件`
+              : "暂无图片，去上传一些吧"
+            } 
+          />
         ) : (
           <>
             <Image.PreviewGroup>
