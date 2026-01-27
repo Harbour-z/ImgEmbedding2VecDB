@@ -11,6 +11,7 @@ import {
   Tag,
   Spin,
   Tooltip,
+  Modal,
 } from 'antd';
 import {
   SendOutlined,
@@ -19,8 +20,11 @@ import {
   DeleteOutlined,
   PictureOutlined,
   BulbOutlined,
+  PlusOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons';
 import { useChatStore } from '../store/chatStore';
+import { useConversationStore } from '../store/conversationStore';
 import type { ChatMessage } from '../api/types';
 import { MarkdownRenderer } from '../components/common/MarkdownRenderer';
 
@@ -29,20 +33,108 @@ const { Text } = Typography;
 const { TextArea } = Input;
 
 export const ChatPage: React.FC = () => {
-  const { messages, isLoading, sendMessage, clearHistory } = useChatStore();
+  const { messages, isLoading, sendMessage, clearHistory, setMessages, addMessage } = useChatStore();
+  const { 
+    currentConversation,
+    createNewConversation,
+    loadConversation,
+    addMessageToCurrent,
+  } = useConversationStore();
   const [inputValue, setInputValue] = useState('');
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [pendingAgentMessage, setPendingAgentMessage] = useState<ChatMessage | null>(null);
+  const [processedMessageIds, setProcessedMessageIds] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
+  // Load conversation from URL params
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const convId = params.get('conversationId');
+    
+    // Only load if conversationId differs from current
+    if (convId && conversationId !== convId) {
+      setConversationId(convId);
+      setIsRestoring(true);
+      loadConversation(convId).catch(err => {
+        console.error('Failed to load conversation:', err);
+        setIsRestoring(false);
+      });
+    }
+  }, [loadConversation, conversationId]);
+
+  // Restore messages when currentConversation is loaded
+  useEffect(() => {
+    if (currentConversation && conversationId === currentConversation.id) {
+      setMessages(currentConversation.messages);
+      setIsRestoring(false);
+    }
+  }, [currentConversation, conversationId, setMessages]);
+
+  // Save agent message to IndexedDB when new agent message appears
+  useEffect(() => {
+    if (pendingAgentMessage) {
+      addMessageToCurrent(pendingAgentMessage).catch(err => {
+        console.error('Failed to save agent message to IndexedDB:', err);
+      });
+      setPendingAgentMessage(null);
+    }
+  }, [pendingAgentMessage, addMessageToCurrent]);
+
+  // Monitor messages to detect new agent messages
+  useEffect(() => {
+    const lastMessage = messages[messages.length - 1];
+    
+    // Check if we have a pending agent message that matches last message
+    if (pendingAgentMessage === null && lastMessage && lastMessage.type === 'agent') {
+      // Check if this message has already been processed
+      if (!processedMessageIds.has(lastMessage.id)) {
+        // Check if this is a new agent message (not from restoring)
+        if (!currentConversation || 
+            !currentConversation.messages.some(msg => msg.id === lastMessage.id)) {
+          setPendingAgentMessage(lastMessage);
+          // Mark as processed
+          setProcessedMessageIds(prev => new Set([...prev, lastMessage.id]));
+        }
+      }
+    }
+  }, [messages, pendingAgentMessage, currentConversation, processedMessageIds]);
+
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
   const handleSend = async () => {
-    if (!inputValue.trim() || isLoading) return;
+    if (!inputValue.trim() || isLoading || isRestoring) return;
     const query = inputValue.trim();
     setInputValue('');
-    await sendMessage(query);
+
+    // Create new conversation if not exists
+    let conversation = currentConversation;
+    if (!conversation) {
+      conversation = await createNewConversation();
+    }
+
+    // Save user message to both stores
+    const userMessage: ChatMessage = {
+      id: crypto.randomUUID(),
+      type: 'user',
+      content: query,
+      timestamp: new Date(),
+    };
+    
+    // Add to conversationStore (IndexedDB)
+    await addMessageToCurrent(userMessage);
+    
+    // Send to agent (userMessage will be added to chatStore by sendMessage)
+    await sendMessage(query, userMessage);
+
+    // Update URL with conversation ID
+    if (conversation?.id && !window.location.search.includes(conversation.id)) {
+      window.history.pushState({}, '', `/chat?conversationId=${conversation.id}`);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -50,6 +142,13 @@ export const ChatPage: React.FC = () => {
       e.preventDefault();
       handleSend();
     }
+  };
+
+  const handleNewConversation = async () => {
+    clearHistory();
+    await createNewConversation();
+    setMessages([]);  // Clear chatStore messages
+    window.location.href = '/chat';
   };
 
   const renderMessage = (msg: ChatMessage) => {
@@ -161,20 +260,41 @@ export const ChatPage: React.FC = () => {
             right: 0, 
             zIndex: 1 
         }}>
-             {messages.length > 0 && (
-                <Tooltip title="清空对话">
+             <Space>
+                <Tooltip title="对话历史">
                     <Button 
                         type="text" 
-                        danger 
-                        icon={<DeleteOutlined />} 
-                        onClick={clearHistory}
+                        icon={<HistoryOutlined />} 
+                        onClick={() => setShowHistoryModal(true)}
                     />
                 </Tooltip>
-            )}
+                {messages.length > 0 && (
+                    <Tooltip title="清空对话">
+                        <Button 
+                            type="text" 
+                            danger 
+                            icon={<DeleteOutlined />} 
+                            onClick={clearHistory}
+                        />
+                    </Tooltip>
+                )}
+            </Space>
         </div>
 
       <Content style={{ overflowY: 'auto', padding: '0 16px', scrollBehavior: 'smooth' }}>
-        {messages.length === 0 ? (
+        {isRestoring ? (
+          <div style={{ 
+              height: '100%', 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              color: '#999'
+          }}>
+             <Spin size="large" />
+             <div style={{ marginTop: 16 }}>正在加载对话历史...</div>
+          </div>
+        ) : messages.length === 0 ? (
           <div style={{ 
               height: '100%', 
               display: 'flex', 
@@ -256,6 +376,53 @@ export const ChatPage: React.FC = () => {
           </div>
         </div>
       </Footer>
+
+      {/* Conversation History Modal */}
+      <Modal
+        title="对话历史"
+        open={showHistoryModal}
+        onCancel={() => setShowHistoryModal(false)}
+        footer={null}
+        width={800}
+        style={{ top: 20 }}
+      >
+        <div style={{ maxHeight: 600, overflowY: 'auto' }}>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={handleNewConversation}
+            style={{ marginBottom: 16 }}
+            block
+          >
+            新建对话
+          </Button>
+          {currentConversation && (
+            <div style={{ 
+                padding: 12, 
+                background: '#e6f7ff', 
+                borderRadius: 8, 
+                marginBottom: 16,
+                border: '1px solid #1677ff'
+            }}>
+              <Space direction="vertical" size="small">
+                <Text strong>当前对话</Text>
+                <Text type="secondary">{currentConversation.title}</Text>
+                <Text type="secondary">{currentConversation.messages.length} 条消息</Text>
+              </Space>
+            </div>
+          )}
+          <div style={{ marginTop: 16 }}>
+            <Text type="secondary">点击下方卡片查看对话历史</Text>
+          </div>
+          <Button
+            type="link"
+            onClick={() => window.location.href = '/conversations'}
+            style={{ marginTop: 8 }}
+          >
+            查看完整历史
+          </Button>
+        </div>
+      </Modal>
     </Layout>
   );
 };

@@ -8,8 +8,10 @@ interface ChatStore {
     messages: ChatMessage[];
     isLoading: boolean;
     error: string | null;
-    sendMessage: (query: string) => Promise<void>;
+    sendMessage: (query: string, userMessage?: ChatMessage) => Promise<void>;
     clearHistory: () => void;
+    setMessages: (messages: ChatMessage[]) => void;
+    addMessage: (message: ChatMessage) => void;
 }
 
 export const useChatStore = create<ChatStore>((set, get) => ({
@@ -18,17 +20,29 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     isLoading: false,
     error: null,
 
-    sendMessage: async (query: string) => {
+    sendMessage: async (query: string, userMessage?: ChatMessage) => {
         const { sessionId, messages } = get();
 
-        const userMessage: ChatMessage = {
+        // Check if user message already exists (added by ChatPage)
+        const lastMessage = messages[messages.length - 1];
+        const hasUserMessage = lastMessage && 
+                            lastMessage.type === 'user' && 
+                            lastMessage.content === query;
+
+        // Use provided userMessage or create new one
+        const msg = userMessage || {
             id: crypto.randomUUID(),
-            type: 'user',
+            type: 'user' as const,
             content: query,
             timestamp: new Date(),
         };
 
-        set({ messages: [...messages, userMessage], isLoading: true, error: null });
+        // Only add user message if not already present
+        if (!hasUserMessage) {
+            set({ messages: [...messages, msg], isLoading: true, error: null });
+        } else {
+            set({ isLoading: true, error: null });
+        }
 
         // Setup AbortController for timeout (120 seconds)
         const controller = new AbortController();
@@ -102,5 +116,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     clearHistory: () => {
         localStorage.removeItem('chat_session_id');
         set({ sessionId: null, messages: [], error: null });
+    },
+
+    setMessages: (messages: ChatMessage[]) => {
+        set({ messages });
+    },
+
+    addMessage: (message: ChatMessage) => {
+        set(state => ({ messages: [...state.messages, message] }));
     },
 }));
